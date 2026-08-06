@@ -1,0 +1,36 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# BREW-PFAD ERMITTELN
+# (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.os "darwin" -}}
+BREW_PREFIX="/opt/homebrew"
+{{- else -}}
+BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+{{- end }}
+
+eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
+
+# ══════════════════════════════════════════════════════════════════
+# TPM (TMUX PLUGIN MANAGER) KLONEN
+# ══════════════════════════════════════════════════════════════════
+
+TPM_DIR="$HOME/.tmux/plugins/tpm"
+
+if [ ! -d "$TPM_DIR" ]; then
+  echo "==> Klone TPM nach $TPM_DIR..."
+  git clone --depth 1 https://github.com/tmux-plugins/tpm "$TPM_DIR"
+else
+  echo "==> TPM bereits vorhanden, überspringe."
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# DEKLARIERTE PLUGINS INSTALLIEREN
+# (liest die @plugin-Zeilen aus ~/.tmux.conf, das per chezmoi
+#  verwaltet wird - läuft daher bewusst als run_once_after)
+# ══════════════════════════════════════════════════════════════════
+
+"$TPM_DIR/bin/install_plugins"
