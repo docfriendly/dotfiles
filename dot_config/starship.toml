@@ -1,0 +1,265 @@
+"$schema" = 'https://starship.rs/config-schema.json'
+
+format = """\
+$all\
+${custom.db_migrate}$fill$ruby$custom\
+$line_break\
+$jobs$character"""
+
+[directory]
+truncation_length = 4
+read_only = " 󰌾"
+
+# Path substitutions for shorter display
+[directory.substitutions]
+"~/Developer/projects" = "DEV"
+"~/Documents/work" = "WORK"
+"~/.config" = "CFG"
+
+[aws]
+symbol = " "
+
+[buf]
+symbol = " "
+
+[bun]
+symbol = " "
+
+[c]
+symbol = " "
+
+[cpp]
+symbol = " "
+
+[cmake]
+symbol = " "
+
+[conda]
+symbol = " "
+
+[crystal]
+symbol = " "
+
+[dart]
+symbol = " "
+
+[deno]
+symbol = " "
+
+[docker_context]
+symbol = " "
+
+[elixir]
+symbol = " "
+
+[elm]
+symbol = " "
+
+[fennel]
+symbol = " "
+
+[fortran]
+symbol = " "
+
+[fossil_branch]
+symbol = " "
+
+[gcloud]
+symbol = " "
+
+# geklaut von ChristianLempa
+[git_status]
+format = '([ \( $all_status$ahead_behind\)]($style) )'
+style = 'bold green'
+conflicted = '[ confliced=${count}](red) '
+up_to_date = '[󰘽 up-to-date](green) '
+untracked = '[󰋗 untracked=${count}](red) '
+ahead = ' ahead=${count}'
+diverged = ' ahead=${ahead_count}  behind=${behind_count}'
+behind = ' behind=${count}'
+stashed = '[ stashed=${count}](green) '
+modified = '[󰛿 modified=${count}](yellow) '
+staged = '[󰐗 staged=${count}](green) '
+renamed = '[󱍸 renamed=${count}](yellow) '
+deleted = '[󰍶 deleted=${count}](red) '
+
+[git_branch]
+symbol = " "
+
+[git_commit]
+tag_symbol = '  '
+
+[golang]
+symbol = " "
+
+[gradle]
+symbol = " "
+
+[guix_shell]
+symbol = " "
+
+[haskell]
+symbol = " "
+
+[haxe]
+symbol = " "
+
+[hg_branch]
+symbol = " "
+
+[hostname]
+ssh_symbol = " "
+
+[java]
+symbol = " "
+
+[julia]
+symbol = " "
+
+[kotlin]
+symbol = " "
+
+[lua]
+symbol = " "
+
+[memory_usage]
+symbol = "󰍛 "
+
+[meson]
+symbol = "󰔷 "
+
+[nim]
+symbol = "󰆥 "
+
+[nix_shell]
+symbol = " "
+
+[nodejs]
+symbol = " "
+
+[ocaml]
+symbol = " "
+
+[os.symbols]
+Alpaquita = " "
+Alpine = " "
+AlmaLinux = " "
+Amazon = " "
+Android = " "
+AOSC = " "
+Arch = " "
+Artix = " "
+CachyOS = " "
+CentOS = " "
+Debian = " "
+DragonFly = " "
+Elementary = " "
+Emscripten = " "
+EndeavourOS = " "
+Fedora = " "
+FreeBSD = " "
+Garuda = "󰛓 "
+Gentoo = " "
+HardenedBSD = "󰞌 "
+Illumos = "󰈸 "
+Ios = "󰀷 "
+Kali = " "
+Linux = " "
+Mabox = " "
+Macos = " "
+Manjaro = " "
+Mariner = " "
+MidnightBSD = " "
+Mint = " "
+NetBSD = " "
+NixOS = " "
+Nobara = " "
+OpenBSD = "󰈺 "
+openSUSE = " "
+OracleLinux = "󰌷 "
+Pop = " "
+Raspbian = " "
+Redhat = " "
+RedHatEnterprise = " "
+RockyLinux = " "
+Redox = "󰀘 "
+Solus = "󰠳 "
+SUSE = " "
+Ubuntu = " "
+Unknown = " "
+Void = " "
+Windows = "󰍲 "
+Zorin = " "
+
+[package]
+symbol = "󰏗 "
+
+[perl]
+symbol = " "
+
+[php]
+symbol = " "
+
+[pijul_channel]
+symbol = " "
+
+[pixi]
+symbol = "󰏗 "
+
+[python]
+symbol = " "
+
+[rlang]
+symbol = "󰟔 "
+
+[ruby]
+symbol = " "
+
+[rust]
+symbol = "󱘗 "
+
+[scala]
+symbol = " "
+
+[status]
+symbol = " "
+
+[swift]
+symbol = " "
+
+[xmake]
+symbol = " "
+
+[zig]
+symbol = " "
+
+[custom.db_migrate]                                                                                                                                                                                                                                                    
+  command = 'echo "⚠ db:migrate!"'                                                                                                                                                                                                                                       
+  when = 'grep -q "^\- \[x\]" /home/harry/Projekte/code/speech_therapy_manager/MDFILES.d/PROMPT_TODO.md 2>/dev/null'                                                                                                                                                     
+  style = "bold yellow"                                                                                                                                                                                                                                                  
+  format = "[$output]($style) "
+
+[custom.ssh_no_keys]
+description = "SSH missing keys"
+when = "ssh-add -l | grep -q 'no identities'"
+command = "echo 🚫"
+format = "$symbol[$output]($style) "
+shell = ["bash", "--noprofile", "--norc"]
+symbol = "󱕵 "
+style = "bold fg:red"
+
+[custom.ssh_keys]
+description = "SSH key count"
+when = "ssh-add -l | grep -v -q 'no identities'"
+command = "ssh-add -l | grep -v 'no identities' | wc -l"
+format = "$symbol[$output]($style) "
+shell = ["bash", "--noprofile", "--norc"]
+symbol = "󱕵 "
+style = "bold fg:green"
+
+# Custom module to show tmux session in prompt
+[custom.tmux_session]
+command = "tmux display-message -p '#S' 2>/dev/null"
+when = "test -n $TMUX"
+format = "[ $output](bold yellow) "
+shell = ["bash", "--noprofile", "--norc"]
