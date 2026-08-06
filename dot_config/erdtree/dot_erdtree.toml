@@ -1,0 +1,8 @@
+icons  = true
+human  = true
+hidden = true # ls -a
+
+# more like tree, ordner zuerst
+#
+#dir-order = "first" 
+#layout = "inverted"
