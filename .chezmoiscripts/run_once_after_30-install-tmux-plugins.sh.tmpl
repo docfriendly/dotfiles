@@ -18,7 +18,7 @@ eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
 # TPM (TMUX PLUGIN MANAGER) KLONEN
 # ══════════════════════════════════════════════════════════════════
 
-TPM_DIR="$HOME/.tmux/plugins/tpm"
+TPM_DIR="$HOME/.config/tmux/plugins/tpm"
 
 if [ ! -d "$TPM_DIR" ]; then
   echo "==> Klone TPM nach $TPM_DIR..."
@@ -29,8 +29,8 @@ fi
 
 # ══════════════════════════════════════════════════════════════════
 # DEKLARIERTE PLUGINS INSTALLIEREN
-# (liest die @plugin-Zeilen aus ~/.tmux.conf, das per chezmoi
-#  verwaltet wird - läuft daher bewusst als run_once_after)
+# (liest die @plugin-Zeilen aus ~/.config/tmux/tmux.conf, das per
+#  chezmoi verwaltet wird - läuft daher bewusst als run_once_after)
 # ══════════════════════════════════════════════════════════════════
 
 "$TPM_DIR/bin/install_plugins"
