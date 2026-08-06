@@ -1,0 +1,2 @@
+# Nach Umzug auf XDG-Pfad ~/.config/git/config entfernen (git >= 1.7.12)
+.gitconfig
