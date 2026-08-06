@@ -1,0 +1,20 @@
+[user]
+	email = {{ .email }}
+	name = {{ .name }}
+[merge]
+	tool = nvimdiff2
+	conflictstyle = diff3
+[alias]
+        alias = ! git config --get-regexp ^alias\\. | sed -e s/^alias\\.// -e s/\\ /\\ =\\ /
+        cm = commit -m
+        amend = commit --amend --no-edit
+	fixup = "!git commit --fixup $1 #"
+	fixup-squash = "!EDITOR=true git rebase --autosquash -i $1 #"
+        recent = branch --sort=-committerdate
+        structure = log --oneline --simplify-by-decoration --graph --all
+        sync-check = log develop..master --oneline
+        hs = log --pretty='%C(yellow)%h %C(cyan)%cd %Cblue%aN%C(auto)%d %Creset%s' --graph --date=relative --date-order
+	hf = log --graph --pretty=format:'%C(yellow)%h%Cred%d %Creset%s%Cblue [%cn]' --stat
+        s = status -sb
+        d = diff -w --word-diff=color --ignore-space-at-eol
+	wip = "!f() { git commit --no-verify -m \"WIP: $*\"; }; f"
