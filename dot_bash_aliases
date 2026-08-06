@@ -1,0 +1,31 @@
+# ~/.bash_aliases
+# Persönliche Bash-Aliase (versioniert)
+
+# Farbunterstützung für ls & grep aktivieren
+if [ -x /usr/bin/dircolors ]; then
+  test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+fi
+
+# Grep-Aliase
+alias grep='grep --color=auto'      # grep-Treffer farbig hervorheben
+alias fgrep='grep -F --color=auto'  # fixed-string grep, ebenfalls farbig
+alias egrep='grep -E --color=auto'  # extended grep, ebenfalls farbig
+alias rgrep='grep -r --color=auto'  # extended grep, ebenfalls farbig
+
+# Praktische ls-Kurzformen
+alias ls='ls --color=auto'        # ls mit Farben
+alias ll='ls -lh'                 # lange Auflistung, menschenlesbare Größen
+alias la='ls -A'                  # alle Dateien außer . und ..
+alias l='ls -CF'                  # kompakte Spaltenansicht mit Typkennzeichen
+
+# sudo-Trick: erlaubt Expansion eigener Aliase auch nach "sudo"
+alias sudo='sudo '
+
+# Custom Funktionen
+# findgrep <suchbegriff>: durchsucht rekursiv alle Dateien im aktuellen Verzeichnis
+# nach <suchbegriff> (case-insensitive), zeigt Dateiname:Zeilennummer:Zeileninhalt
+# und hebt den Treffer im Text farbig hervor.
+# Als Funktion statt Alias, weil $1 mitten im Kommando (vor "{} +") gebraucht wird.
+findgrep() {
+    find . -type f -exec grep -in --color=auto "$1" {} +
+}
