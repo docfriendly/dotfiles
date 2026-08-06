@@ -5,6 +5,7 @@ brew "starship"
 brew "zoxide"
 brew "asdf"
 
+brew "btop"
 brew "croc"
 brew "fd"
 brew "fzf"
