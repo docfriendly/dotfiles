@@ -1,0 +1,24 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# BREW-PFAD ERMITTELN
+# (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.os "darwin" -}}
+BREW_PREFIX="/opt/homebrew"
+{{- else -}}
+BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+{{- end }}
+
+# ══════════════════════════════════════════════════════════════════
+# HOMEBREW INSTALLIEREN
+# ══════════════════════════════════════════════════════════════════
+
+if [ ! -x "$BREW_PREFIX/bin/brew" ]; then
+  echo "==> Installiere Homebrew..."
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+else
+  echo "==> Homebrew bereits vorhanden unter $BREW_PREFIX, überspringe."
+fi

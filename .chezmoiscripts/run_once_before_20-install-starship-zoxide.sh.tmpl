@@ -1,0 +1,28 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# BREW-PFAD ERMITTELN
+# (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.os "darwin" -}}
+BREW_PREFIX="/opt/homebrew"
+{{- else -}}
+BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+{{- end }}
+
+eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
+
+# ══════════════════════════════════════════════════════════════════
+# STARSHIP & ZOXIDE INSTALLIEREN
+# ══════════════════════════════════════════════════════════════════
+
+for pkg in starship zoxide; do
+  if ! brew list "$pkg" &>/dev/null; then
+    echo "==> Installiere $pkg..."
+    brew install "$pkg"
+  else
+    echo "==> $pkg bereits installiert, überspringe."
+  fi
+done
