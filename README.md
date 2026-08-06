@@ -15,11 +15,13 @@ Das löst automatisch die komplette Kette aus:
 
 1. `run_once_before_10-install-homebrew.sh.tmpl` – installiert Homebrew
    (macOS: `/opt/homebrew`, Linux: `/home/linuxbrew/.linuxbrew`)
-2. `run_once_before_20-install-starship-zoxide.sh.tmpl` – installiert
-   starship & zoxide via brew
-3. Dotfiles werden geschrieben (`.bashrc`, `.bash_aliases`, `.tool-versions`, ...)
-4. `run_once_after_10-install-asdf-tools.sh.tmpl` – installiert asdf,
-   registriert die Plugins und installiert alle Versionen aus `.tool-versions`
+2. Dotfiles werden geschrieben (`.bashrc`, `.bash_aliases`, `.Brewfile`,
+   `.tool-versions`, ...)
+3. `run_once_after_10-install-brew-bundle.sh.tmpl` – installiert alle
+   Pakete aus `~/.Brewfile` (starship, zoxide, asdf, ripgrep, fzf, ...)
+   und richtet die fzf-Shell-Integration nicht-interaktiv ein
+4. `run_once_after_20-install-asdf-tools.sh.tmpl` – registriert die
+   asdf-Plugins und installiert alle Versionen aus `.tool-versions`
 
 Chezmoi selbst landet dabei in `~/.local/bin/chezmoi` – dieser Pfad ist
 bereits am Ende der `.bashrc` in `PATH` eingetragen.

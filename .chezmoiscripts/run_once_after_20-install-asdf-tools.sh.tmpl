@@ -15,14 +15,22 @@ BREW_PREFIX="/home/linuxbrew/.linuxbrew"
 eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
 
 # ══════════════════════════════════════════════════════════════════
-# STARSHIP & ZOXIDE INSTALLIEREN
+# PLUGINS REGISTRIEREN
+# (asdf selbst kommt aus dem Brewfile-Bundle, run_once_after_10)
 # ══════════════════════════════════════════════════════════════════
 
-for pkg in starship zoxide; do
-  if ! brew list "$pkg" &>/dev/null; then
-    echo "==> Installiere $pkg..."
-    brew install "$pkg"
-  else
-    echo "==> $pkg bereits installiert, überspringe."
-  fi
+for plugin in nodejs python ruby rust; do
+  asdf plugin add "$plugin" 2>/dev/null || true
 done
+
+# ══════════════════════════════════════════════════════════════════
+# TOOL-VERSIONEN INSTALLIEREN
+# (liest ~/.tool-versions, das per chezmoi verwaltet wird)
+# ══════════════════════════════════════════════════════════════════
+
+if [ -f "$HOME/.tool-versions" ]; then
+  echo "==> Installiere Tool-Versionen aus ~/.tool-versions..."
+  asdf install
+else
+  echo "WARNUNG: ~/.tool-versions nicht gefunden - bitte per 'chezmoi add ~/.tool-versions' verwalten lassen." >&2
+fi

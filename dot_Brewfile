@@ -1,0 +1,20 @@
+# CLI-Werkzeuge, installiert per `brew bundle --file="$HOME/.Brewfile"`
+# (siehe .chezmoiscripts/run_once_after_10-install-brew-bundle.sh.tmpl)
+
+brew "starship"
+brew "zoxide"
+brew "asdf"
+
+brew "croc"
+brew "fd"
+brew "fzf"
+brew "erdtree"
+brew "lazygit"
+brew "mosh"
+brew "ripgrep"
+brew "syncthing"
+brew "tealdeer"
+brew "tmux"
+brew "w3m"
+brew "wireguard-go"
+brew "glow"
