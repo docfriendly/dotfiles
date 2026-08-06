@@ -149,9 +149,23 @@ export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; histor
 # werden, damit sie PROMPT_COMMAND vollständig übernehmen können.
 # ══════════════════════════════════════════════════════════════════
 
-. "/home/harry/.asdf/installs/rust/1.93.1/env"
+# Rust-env dynamisch anhand ~/.tool-versions laden, statt eine feste
+# Version hart zu kodieren (die sich bei asdf-Updates sonst leise von
+# der tatsächlich installierten Version entkoppelt)
+if [ -f "$HOME/.tool-versions" ]; then
+  rust_version=$(awk '/^rust /{print $2}' "$HOME/.tool-versions")
+  if [ -n "$rust_version" ] && [ -f "$HOME/.asdf/installs/rust/$rust_version/env" ]; then
+    . "$HOME/.asdf/installs/rust/$rust_version/env"
+  fi
+  unset rust_version
+fi
+
+{{ if eq .chezmoi.os "darwin" -}}
+eval "$(/opt/homebrew/bin/brew shellenv bash)"
+{{- else -}}
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
-export PATH=/home/harry/.asdf/shims:$PATH
+{{- end }}
+export PATH="$HOME/.asdf/shims:$PATH"
 eval "$(starship init bash)"
 eval "$(zoxide init bash)"
 export PATH="$HOME/.local/bin:$PATH"
