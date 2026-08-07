@@ -32,6 +32,74 @@ bereits am Ende der `.bashrc` in `PATH` eingetragen.
 Falls auf der Maschine schon Homebrew existiert, geht's alternativ auch mit
 `brew install chezmoi && chezmoi init --apply <github-user>`.
 
+## Config-Speicherorte
+
+Manche Configs liegen bewusst nicht am klassischen Ort, sondern unter dem
+XDG-Standardpfad `~/.config/`:
+
+- Git: `~/.config/git/config` (statt `~/.gitconfig`, git ≥ 1.7.12)
+- tmux: `~/.config/tmux/tmux.conf` (statt `~/.tmux.conf`, tmux ≥ 3.1) –
+  auch die TPM-Plugins landen dort, unter `~/.config/tmux/plugins/`
+  (per `set-environment -g TMUX_PLUGIN_MANAGER_PATH` in der Config)
+
+`.chezmoiremove` sorgt dafür, dass die alten Pfade (`~/.gitconfig`,
+`~/.tmux.conf`) auf bereits eingerichteten Maschinen aktiv entfernt
+werden, falls sie noch existieren. Auf einer echten Neuinstallation
+existieren sie ohnehin nicht, dort greift das schlicht ins Leere.
+
+## Nützliche Befehle
+
+```bash
+chezmoi diff                        # zeigt anstehende Änderungen, ohne sie anzuwenden
+chezmoi apply --dry-run --verbose   # simuliert den kompletten Apply inkl. Skript-Reihenfolge
+chezmoi state data                  # zeigt den kompletten lokalen State (siehe unten)
+```
+
+Der lokale State liegt in `~/.config/chezmoi/chezmoistate.boltdb`
+(maschinenspezifisch, nicht im Repo). Darin merkt sich chezmoi u.a. pro
+`run_once_`-Skript den SHA256-Hash seines gerenderten Inhalts plus
+Zeitpunkt der letzten Ausführung (`scriptState`-Bucket) – ändert sich der
+Skriptinhalt nicht, wird es bei künftigen `apply`-Läufen dauerhaft
+übersprungen, auch wenn es intern idempotent ist.
+
+## Bekannte Stolpersteine
+
+**tmux-Plugins schlagen mit `unknown variable: TMUX_PLUGIN_MANAGER_PATH` fehl**
+
+Passiert nur, wenn auf der Maschine schon ein tmux-Server läuft, *bevor*
+`run_once_after_30-install-tmux-plugins.sh.tmpl` zum ersten Mal ausgeführt
+wird (z.B. bei einer bestehenden Maschine, nicht bei einer echten
+Neuinstallation). Ein laufender tmux-Server liest seine Config nur beim
+eigenen Start – das `set-environment -g TMUX_PLUGIN_MANAGER_PATH ...` aus
+`tmux.conf` landet dann nie im Server, und TPM findet die Variable nicht.
+
+Fix: Config in den laufenden Server nachladen, danach `chezmoi apply`
+erneut ausführen (das Skript ist idempotent, TPM wird nicht erneut
+geklont):
+
+```bash
+tmux source-file ~/.config/tmux/tmux.conf
+chezmoi apply
+```
+
+Auf einer frischen Maschine ohne laufenden tmux-Server tritt das Problem
+nicht auf, da der Server beim allerersten Start automatisch die aktuelle
+Config liest.
+
+**PS: `chmod ... operation not permitted` unter `~/.config/...`**
+
+Kommt vor, wenn irgendein Ordner unter `~/.config` versehentlich (meist
+durch einen früheren `sudo`-Aufruf) `root:root` statt `harry:harry`
+gehört – als normaler User darf man Rechte an Dateien, die einem nicht
+selbst gehören, nicht per `chmod` ändern, auch nicht innerhalb des
+eigenen Home-Verzeichnisses. Prüfen mit `stat <pfad>`, Fix:
+
+```bash
+sudo chown -R harry:harry <betroffener-ordner>
+```
+
+Danach `chezmoi apply` erneut ausführen.
+
 ## Maschinenspezifische Werte
 
 `.chezmoi.toml.tmpl` fragt bei `chezmoi init` interaktiv nach Git-`name`
