@@ -140,6 +140,22 @@ esac
 #  beim Initialisieren mit übernehmen)
 # ══════════════════════════════════════════════════════════════════
 
+# `chezmoi cd` überschreiben: statt einer echten Subshell nur ein
+# `cd` in der aktuellen Shell, damit sich das nicht mehr verschachteln
+# kann (siehe pstree-Vorfall vom 2026-08-08 mit 7 verschachtelten
+# `chezmoi cd`-Subshells). Alle anderen Subcommands gehen unverändert
+# ans echte Binary durch.
+chezmoi() {
+  if [ "$1" = cd ] && [ "$2" != -h ] && [ "$2" != --help ]; then
+    shift
+    local dir
+    dir=$(command chezmoi source-path "$@") || return
+    builtin cd "$dir"
+  else
+    command chezmoi "$@"
+  fi
+}
+
 # Nach jedem Kommando: History sichern und neu einlesen
 export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; history -c; history -r"
 

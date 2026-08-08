@@ -4,7 +4,7 @@ format = """\
 $all\
 ${custom.db_migrate}$fill$ruby$custom\
 $line_break\
-$jobs$character"""
+$shlvl$jobs$character"""
 
 [directory]
 truncation_length = 4
@@ -263,3 +263,20 @@ command = "tmux display-message -p '#S' 2>/dev/null"
 when = "test -n $TMUX"
 format = "[ $output](bold yellow) "
 shell = ["bash", "--noprofile", "--norc"]
+
+# Shows "CHEZMOI" while inside a `chezmoi cd` subshell
+[custom.chezmoi]
+description = "Inside a chezmoi cd subshell"
+command = "echo CHEZMOI"
+when = 'test -n "$CHEZMOI"'
+format = "[ $output]($style) "
+shell = ["bash", "--noprofile", "--norc"]
+style = "bold fg:magenta"
+
+# Shell nesting depth (subshells, sudo -s, chezmoi cd, ...)
+[shlvl]
+disabled = false
+symbol = "⇊ "
+threshold = 2
+style = "bold yellow"
+format = "[$shlvl$symbol]($style) "
