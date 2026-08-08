@@ -4,8 +4,19 @@ Persönliche Konfiguration, verwaltet mit [chezmoi](https://chezmoi.io).
 
 ## Neue Maschine aufsetzen
 
-Dieser eine Befehl installiert chezmoi selbst (Standalone-Binary, **keine**
-Homebrew-Abhängigkeit), klont dieses Repo und wendet es sofort an:
+**Schritt 0, vor allem anderen:** Hostname explizit setzen, nicht dem
+Installer/DHCP überlassen. `.chezmoidata.yaml` und der Vault-Scripts-
+Mechanismus (siehe unten) sind über den Hostnamen verzweigt – ein falsch
+geschriebener oder vom Installer generierter Hostname (`x220`,
+`x230`, ...) führt sonst dazu, dass die falschen (oder gar keine)
+maschinenspezifischen Werte greifen:
+
+```bash
+sudo hostnamectl set-hostname x220
+```
+
+Danach dieser eine Befehl: installiert chezmoi selbst (Standalone-Binary,
+**keine** Homebrew-Abhängigkeit), klont dieses Repo und wendet es sofort an:
 
 ```bash
 sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply <github-user>
@@ -30,6 +41,10 @@ Das löst automatisch die komplette Kette aus:
 6. `run_once_after_30-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
    Plugin Manager) und installiert alle in `.tmux.conf` deklarierten
    Plugins nicht-interaktiv
+7. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
+   Scripte aus dem Syncthing-Vault nach `~/.local/bin`, siehe
+   [Vault-Scripts & Custom Pages](#vault-scripts--custom-pages-syncthing)
+   unten
 
 Chezmoi selbst landet dabei in `~/.local/bin/chezmoi` – dieser Pfad ist
 bereits am Ende der `.bashrc` in `PATH` eingetragen.
@@ -51,6 +66,44 @@ XDG-Standardpfad `~/.config/`:
 `~/.tmux.conf`) auf bereits eingerichteten Maschinen aktiv entfernt
 werden, falls sie noch existieren. Auf einer echten Neuinstallation
 existieren sie ohnehin nicht, dort greift das schlicht ins Leere.
+
+## Vault-Scripts & Custom Pages (Syncthing)
+
+`~/Sync/vault` ist ein per Syncthing zwischen den Maschinen synchronisierter
+Ordner (kein Git, siehe [TODO_syncthing.md](TODO_syncthing.md) für den
+größeren Plan dahinter) – dorthin gehört alles, was privat bleiben soll
+(potenziell auch nach dem geplanten öffentlichen Mirror dieses Repos) oder
+das nicht auf jeder Maschine identisch sein soll.
+
+**Private Scripte** (`~/Sync/vault/script/<hostname>/`, z.B. `script/x220/`):
+Für jede bekannte Maschine ein eigener Ordner, plus `script/common/` für
+Scripte, die auf mehreren/allen Maschinen verfügbar sein sollen, aber
+trotzdem nicht ins (ggf. später öffentliche) Git-Repo gehören.
+`run_after_50-symlink-vault-scripts.sh.tmpl` verlinkt bei jedem
+`chezmoi apply` automatisch alle Dateien aus `script/<hostname>/` und
+`script/common/` nach `~/.local/bin/` – neues Script in den passenden
+Ordner legen, `chezmoi apply`, fertig, kein Repo-Commit nötig. Das Skript
+räumt auch verwaiste Symlinks auf, wenn ein Script im Vault gelöscht wird.
+
+Soll ein Script stattdessen auf **allen** Maschinen identisch und
+versioniert sein, ist der vault-Mechanismus der falsche Ort – dafür ganz
+normal eine `executable_dot_local/bin/<name>`-Datei im Repo anlegen (per
+`chezmoi add`). Für eine feste Teilmenge von Maschinen: ebenso eine normale
+Repo-Datei, aber per `.chezmoiignore`-Template auf den nicht gewünschten
+Hostnamen ausschließen.
+
+**Custom tealdeer-Pages** (`~/Sync/vault/tealdeer/pages/`): wird per
+nativem chezmoi-`symlink_`-Eintrag (`dot_local/share/tealdeer/symlink_pages.tmpl`)
+nach `~/.local/share/tealdeer/pages` verlinkt. Auch hier kein
+Reihenfolge-Problem mit Syncthing: Der Symlink kann angelegt werden, bevor
+der Ordner durch Syncthing befüllt ist – er zeigt dann kurz ins Leere und
+heilt sich von selbst, sobald die Dateien ankommen.
+
+Beide Mechanismen hängen am Hostnamen und nutzen denselben Guard wie
+`dot_config/tmux/tmux.conf.tmpl`: ein unbekannter Hostname lässt
+`chezmoi apply` bewusst fehlschlagen statt still eine leere/falsche
+Maschine anzunehmen (siehe [Maschinenspezifische Werte](#maschinenspezifische-werte)
+unten).
 
 ## Verschlüsselte Dateien (age)
 

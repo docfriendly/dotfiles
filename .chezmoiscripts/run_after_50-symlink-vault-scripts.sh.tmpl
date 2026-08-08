@@ -1,0 +1,54 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# HOSTNAME PRÜFEN
+# (gleiches Muster wie dot_config/tmux/tmux.conf.tmpl: unbekannter
+#  Hostname bricht hart ab statt still eine leere Maschine anzunehmen)
+# ══════════════════════════════════════════════════════════════════
+
+{{- $machine := index .machines .chezmoi.hostname -}}
+{{- if not $machine -}}
+{{   fail (printf "run_after_50-symlink-vault-scripts: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
+{{- end }}
+
+# ══════════════════════════════════════════════════════════════════
+# VAULT-SCRIPTS VERLINKEN
+# (läuft bei JEDEM Apply, nicht nur einmalig: die Scripte in
+#  ~/Sync/vault/script/... werden per Syncthing synchronisiert und
+#  liegen damit außerhalb dessen, was chezmoi selbst beobachten kann -
+#  neue/entfernte Scripte sollen trotzdem ohne Repo-Änderung wirksam
+#  werden, sobald `chezmoi apply` erneut läuft)
+# ══════════════════════════════════════════════════════════════════
+
+BIN_DIR="$HOME/.local/bin"
+VAULT_SCRIPT_ROOT="$HOME/Sync/vault/script"
+VAULT_SCRIPT_DIRS=(
+  "$VAULT_SCRIPT_ROOT/{{ .chezmoi.hostname }}"
+  "$VAULT_SCRIPT_ROOT/common"
+)
+
+mkdir -p "$BIN_DIR"
+
+# ── Symlinks für vorhandene Vault-Scripte anlegen/aktualisieren ──
+# (find statt Glob, da `set -f` oben Pathname-Expansion deaktiviert;
+#  toleriert außerdem, dass der Vault-Ordner auf einer frischen
+#  Maschine noch nicht existiert, falls Syncthing noch nicht
+#  synchronisiert hat - ein dangling Symlink heilt sich dann von
+#  selbst, sobald Syncthing die Datei anlegt)
+for dir in "${VAULT_SCRIPT_DIRS[@]}"; do
+  [ -d "$dir" ] || continue
+  find "$dir" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' script; do
+    ln -sf "$script" "$BIN_DIR/$(basename "$script")"
+  done
+done
+
+# ── verwaiste Symlinks entfernen (Quell-Script im Vault gelöscht) ──
+find "$BIN_DIR" -maxdepth 1 -type l -print0 2>/dev/null | while IFS= read -r -d '' link; do
+  target=$(readlink "$link")
+  case "$target" in
+    "$VAULT_SCRIPT_ROOT"/*)
+      [ -e "$target" ] || rm "$link"
+      ;;
+  esac
+done
