@@ -1,0 +1,27 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# LIBREOFFICE (nur Linux - macOS läuft über die Casks im Brewfile)
+# MX Linux bringt LibreOffice zwar meist schon mit, aber ohne
+# deutsches Sprachpaket - hier trotzdem als Metapaket + de-Pakete,
+# damit auch Neuinstallationen ohne vorinstalliertes LibreOffice
+# alles bekommen. apt-get install überspringt bereits vorhandene
+# Pakete automatisch.
+# ══════════════════════════════════════════════════════════════════
+
+PACKAGES=(libreoffice libreoffice-l10n-de libreoffice-help-de)
+
+MISSING=()
+for pkg in "${PACKAGES[@]}"; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
+done
+
+if [ "${#MISSING[@]}" -eq 0 ]; then
+  echo "==> LibreOffice inkl. deutschem Sprachpaket bereits installiert, überspringe."
+else
+  echo "==> Installiere: ${MISSING[*]}..."
+  sudo apt-get install -y "${MISSING[@]}"
+fi
+{{ end -}}
