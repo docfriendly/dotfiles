@@ -279,4 +279,4 @@ disabled = false
 symbol = "⇊ "
 threshold = 2
 style = "bold yellow"
-format = "[$shlvl$symbol]($style) "
+format = "[$symbol$shlvl]($style) "
