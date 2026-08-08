@@ -1,0 +1,15 @@
+# ══════════════════════════════════════════════════════════════════
+# NERD FONTS
+# Wird als Archiv direkt von GitHub geladen und in ein eigenes
+# Unterverzeichnis entpackt (exact = true, d.h. chezmoi entfernt dort
+# auch Dateien, die in einer neueren Version nicht mehr enthalten sind).
+#
+# Update auf neuere Version: Tag in der URL anpassen, siehe
+# https://github.com/ryanoasis/nerd-fonts/releases
+# ══════════════════════════════════════════════════════════════════
+
+[".local/share/fonts/NerdFonts/JetBrainsMono"]
+    type = "archive"
+    url = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.0/JetBrainsMono.zip"
+    exact = true
+    refreshPeriod = "720h"

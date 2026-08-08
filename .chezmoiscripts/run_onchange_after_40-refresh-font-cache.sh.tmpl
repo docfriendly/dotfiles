@@ -1,0 +1,13 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# FONT-CACHE AKTUALISIEREN
+# (läuft nur erneut, wenn sich .chezmoiexternal.toml ändert – der Hash
+#  unten sorgt dafür, dass chezmoi das Skript als "geändert" erkennt)
+# .chezmoiexternal.toml hash: {{ include ".chezmoiexternal.toml" | sha256sum }}
+# ══════════════════════════════════════════════════════════════════
+
+if command -v fc-cache >/dev/null; then
+  fc-cache -f "$HOME/.local/share/fonts"
+fi
