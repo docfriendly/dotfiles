@@ -15,14 +15,19 @@ Das löst automatisch die komplette Kette aus:
 
 1. `run_once_before_10-install-homebrew.sh.tmpl` – installiert Homebrew
    (macOS: `/opt/homebrew`, Linux: `/home/linuxbrew/.linuxbrew`)
-2. Dotfiles werden geschrieben (`.bashrc`, `.bash_aliases`, `.Brewfile`,
-   `.tool-versions`, ...)
-3. `run_once_after_10-install-brew-bundle.sh.tmpl` – installiert alle
+2. `run_once_before_15-install-age.sh.tmpl` – installiert `age` per
+   Homebrew (für Passphrase-verschlüsselte `encrypted_`-Dateien, siehe
+   [Verschlüsselte Dateien](#verschlüsselte-dateien-age) unten; muss vor
+   der Dateiverarbeitung im nächsten Schritt bereitstehen)
+3. Dotfiles werden geschrieben (`.bashrc`, `.bash_aliases`, `.Brewfile`,
+   `.tool-versions`, ...) – bei `encrypted_`-Dateien fragt chezmoi an
+   dieser Stelle interaktiv nach der age-Passphrase
+4. `run_once_after_10-install-brew-bundle.sh.tmpl` – installiert alle
    Pakete aus `~/.Brewfile` (starship, zoxide, asdf, ripgrep, fzf, ...)
    und richtet die fzf-Shell-Integration nicht-interaktiv ein
-4. `run_once_after_20-install-asdf-tools.sh.tmpl` – registriert die
+5. `run_once_after_20-install-asdf-tools.sh.tmpl` – registriert die
    asdf-Plugins und installiert alle Versionen aus `.tool-versions`
-5. `run_once_after_30-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
+6. `run_once_after_30-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
    Plugin Manager) und installiert alle in `.tmux.conf` deklarierten
    Plugins nicht-interaktiv
 
@@ -46,6 +51,25 @@ XDG-Standardpfad `~/.config/`:
 `~/.tmux.conf`) auf bereits eingerichteten Maschinen aktiv entfernt
 werden, falls sie noch existieren. Auf einer echten Neuinstallation
 existieren sie ohnehin nicht, dort greift das schlicht ins Leere.
+
+## Verschlüsselte Dateien (age)
+
+`.chezmoi.toml.tmpl` setzt `encryption = "age"` mit `[age] passphrase = true`
+– Passphrase-Modus, nicht Keypair-Modus. Der Unterschied: Keypair-Modus
+bräuchte eine private Schlüsseldatei, die selbst wieder sicher auf jede
+neue Maschine transportiert werden müsste (Henne-Ei-Problem). Bei
+Passphrase-Modus gibt es keine Schlüsseldatei – nur ein Passwort, das man
+sich merkt und bei Bedarf interaktiv eingibt.
+
+chezmois eingebautes age unterstützt **keine** Passphrasen (nur Keypair),
+daher braucht dieser Modus zwingend das externe `age`-Kommando im
+`$PATH` – siehe Schritt 2 oben. `encrypted_`-Dateien werden damit direkt
+im Repo verschlüsselt versioniert; die Passphrase wird abgefragt, sobald
+chezmoi eine solche Datei anwenden oder anzeigen muss (`apply`, `diff`,
+`status`).
+
+Aktuell verwaltet dieses Repo noch keine `encrypted_`-Dateien – der
+Mechanismus ist vorbereitet, aber ungenutzt.
 
 ## Nützliche Befehle
 

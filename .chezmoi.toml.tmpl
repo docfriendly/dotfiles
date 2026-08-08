@@ -1,3 +1,8 @@
+encryption = "age"
+
+[age]
+    passphrase = true
+
 [data]
     name  = {{ promptStringOnce . "name" "Git user.name" "Harry" | quote }}
     email = {{ promptStringOnce . "email" "Git user.email" "harald@humme.lt" | quote }}

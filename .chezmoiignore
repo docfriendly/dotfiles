@@ -1,2 +1,3 @@
 # Dokumentation im Repo-Root soll nicht als Zieldatei nach $HOME kopiert werden
 README.md
+TODO_syncthing.md

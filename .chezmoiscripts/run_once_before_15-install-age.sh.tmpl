@@ -1,0 +1,30 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# BREW-PFAD ERMITTELN
+# (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.os "darwin" -}}
+BREW_PREFIX="/opt/homebrew"
+{{- else -}}
+BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+{{- end }}
+
+eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
+
+# ══════════════════════════════════════════════════════════════════
+# AGE INSTALLIEREN
+# (wird fuer Passphrase-basierte encrypted_-Dateien gebraucht - chezmois
+#  eingebautes age kann keine Passphrasen, nur Keypair-Modus. Muss vor
+#  der Dateiverarbeitung verfuegbar sein, daher run_once_before statt
+#  im normalen Brewfile-Bundle, das erst run_once_after laeuft)
+# ══════════════════════════════════════════════════════════════════
+
+if ! command -v age >/dev/null 2>&1; then
+  echo "==> Installiere age..."
+  brew install age
+else
+  echo "==> age bereits vorhanden, überspringe."
+fi
