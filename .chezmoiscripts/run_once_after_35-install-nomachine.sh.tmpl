@@ -1,0 +1,30 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# NOMACHINE (nur Linux - macOS läuft über den Cask im Brewfile)
+# Kein apt/nala-Paket verfügbar, NoMachine vertreibt nur direkte
+# .deb-Downloads. Es gibt keine stabile "latest"-URL (Version und
+# Mirror-Host stehen fest drin) - Version daher hier gepinnt statt
+# zur Laufzeit von der Download-Seite gescraped.
+#
+# Update auf neuere Version: aktuellen Link auf
+# https://download.nomachine.com/download/?id=43&platform=linux
+# (Personal Edition, 64-bit .deb) prüfen und unten ersetzen.
+# ══════════════════════════════════════════════════════════════════
+
+NOMACHINE_URL="https://web9001.nomachine.com/download/10.0/Linux/nomachine-personal-edition_10.0.57_2_amd64.deb"
+
+if dpkg -s nomachine >/dev/null 2>&1; then
+  echo "==> NoMachine bereits installiert, überspringe."
+else
+  echo "==> Installiere NoMachine..."
+  TMPDIR="$(mktemp -d)"
+  trap 'rm -rf "$TMPDIR"' EXIT
+  DEB_PATH="$TMPDIR/nomachine.deb"
+
+  curl -fsSL -o "$DEB_PATH" "$NOMACHINE_URL"
+  sudo apt-get install -y "$DEB_PATH"
+fi
+{{ end -}}

@@ -41,7 +41,14 @@ Das löst automatisch die komplette Kette aus:
 6. `run_once_after_30-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
    Plugin Manager) und installiert alle in `.tmux.conf` deklarierten
    Plugins nicht-interaktiv
-7. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
+7. `run_once_after_35-install-nomachine.sh.tmpl` – nur unter Linux
+   (macOS läuft über den `cask "nomachine"` im Brewfile, siehe Schritt 4):
+   lädt das gepinnte `.deb` von NoMachine herunter und installiert es per
+   `sudo apt-get install` – fragt dabei einmalig interaktiv nach dem
+   sudo-Passwort. Gibt kein apt/nala-Paket, daher direkter Download;
+   Version steht fest im Skript, da NoMachine keine stabile "latest"-URL
+   anbietet (siehe Kommentar im Skript zum Aktualisieren)
+8. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
    Scripte aus dem Syncthing-Vault nach `~/.local/bin`, siehe
    [Vault-Scripts & Custom Pages](#vault-scripts--custom-pages-syncthing)
    unten
