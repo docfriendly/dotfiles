@@ -1,0 +1,16 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# DESKFLOW (nur Linux - kein Homebrew-Formula/-Cask verfügbar)
+# Auf Debian/Ubuntu direkt über apt installierbar.
+# ══════════════════════════════════════════════════════════════════
+
+if dpkg -s deskflow >/dev/null 2>&1; then
+  echo "==> Deskflow bereits installiert, überspringe."
+else
+  echo "==> Installiere Deskflow..."
+  sudo apt-get install -y deskflow
+fi
+{{ end -}}
