@@ -1,0 +1,23 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# PODMAN (nur Linux - kommt aus apt, nicht von Homebrew)
+# uidmap wird für rootless Podman gebraucht (Subuid/Subgid-Mapping).
+# ══════════════════════════════════════════════════════════════════
+
+PACKAGES=(podman podman-compose podman-docker uidmap)
+
+MISSING=()
+for pkg in "${PACKAGES[@]}"; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
+done
+
+if [ "${#MISSING[@]}" -eq 0 ]; then
+  echo "==> Podman inkl. Compose bereits installiert, überspringe."
+else
+  echo "==> Installiere: ${MISSING[*]}..."
+  sudo apt-get install -y "${MISSING[@]}"
+fi
+{{ end -}}
