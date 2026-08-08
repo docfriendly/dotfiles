@@ -21,3 +21,10 @@ brew "w3m"
 brew "wireguard-go"
 brew "wireguard-tools"
 brew "glow"
+{{ if eq .chezmoi.os "darwin" }}
+# ══════════════════════════════════════════════════════════════════
+# CASKS (nur macOS - Linuxbrew kennt keine Casks)
+# ══════════════════════════════════════════════════════════════════
+
+cask "nomachine"
+{{ end -}}
