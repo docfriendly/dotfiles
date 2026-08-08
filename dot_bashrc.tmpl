@@ -156,6 +156,25 @@ chezmoi() {
   fi
 }
 
+# `tealdeer cd`: springt in Analogie zu `chezmoi cd` direkt (kein
+# Subshell) ins Custom-Pages-Verzeichnis von tealdeer, in dem eigene/
+# gepatchte tldr-Seiten liegen. Eigener Funktionsname `tealdeer` statt
+# `tldr`, damit die normale tldr-Seite "cd" (Anzeige der cd-Hilfe)
+# nicht überschrieben wird. tealdeer kennt kein natives `cd`-
+# Subcommand, der Pfad wird daher aus `tldr --show-paths` geparst statt
+# hartkodiert.
+tealdeer() {
+  if [ "$1" = cd ]; then
+    local dir
+    dir=$(command tldr --show-paths | sed -n 's/^Custom pages dir:\s*\(.*\)$/\1/p' | sed 's/ (OS convention)$//') || return
+    [ -n "$dir" ] || { echo "tealdeer cd: Custom pages dir nicht gefunden" >&2; return 1; }
+    mkdir -p "$dir"
+    builtin cd "$dir"
+  else
+    command tldr "$@"
+  fi
+}
+
 # Nach jedem Kommando: History sichern und neu einlesen
 export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; history -c; history -r"
 
