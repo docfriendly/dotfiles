@@ -1,0 +1,5 @@
+# Lokale Architektur-/Planungsnotizen, bewusst nicht versioniert:
+# verrät Infrastruktur-Topologie (Hostnamen, Sync-Setup), landet daher
+# nie im Repo - auch nicht im privaten Forgejo, geschweige denn im
+# oeffentlichen Mirror.
+TODO_syncthing.md
