@@ -48,10 +48,13 @@ Das löst automatisch die komplette Kette aus:
    sudo-Passwort. Gibt kein apt/nala-Paket, daher direkter Download;
    Version steht fest im Skript, da NoMachine keine stabile "latest"-URL
    anbietet (siehe Kommentar im Skript zum Aktualisieren)
-8. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
-   Scripte aus dem Syncthing-Vault nach `~/.local/bin`, siehe
-   [Vault-Scripts & Custom Pages](#vault-scripts--custom-pages-syncthing)
+8. `run_after_45-symlink-vault-ssh.sh.tmpl` – verlinkt private SSH-Keys,
+   `config` etc. aus dem Syncthing-Vault nach `~/.ssh`, siehe
+   [Vault-Scripts, SSH & Custom Pages](#vault-scripts-ssh--custom-pages-syncthing)
    unten
+9. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
+   Scripte aus dem Syncthing-Vault nach `~/.local/bin`, siehe selbiger
+   Abschnitt
 
 Chezmoi selbst landet dabei in `~/.local/bin/chezmoi` – dieser Pfad ist
 bereits am Ende der `.bashrc` in `PATH` eingetragen.
@@ -74,7 +77,7 @@ XDG-Standardpfad `~/.config/`:
 werden, falls sie noch existieren. Auf einer echten Neuinstallation
 existieren sie ohnehin nicht, dort greift das schlicht ins Leere.
 
-## Vault-Scripts & Custom Pages (Syncthing)
+## Vault-Scripts, SSH & Custom Pages (Syncthing)
 
 `~/Sync/vault` ist ein per Syncthing zwischen den Maschinen synchronisierter
 Ordner (kein Git, siehe [TODO_syncthing.md](TODO_syncthing.md) für den
@@ -99,6 +102,20 @@ normal eine `executable_dot_local/bin/<name>`-Datei im Repo anlegen (per
 Repo-Datei, aber per `.chezmoiignore`-Template auf den nicht gewünschten
 Hostnamen ausschließen.
 
+**SSH** (`~/Sync/vault/ssh/<hostname>/`, z.B. `ssh/x220/`): private Keys,
+`authorized_keys`, `config` und `known_hosts` gehören nicht ins Git-Repo –
+auch nicht age-verschlüsselt, wegen des geplanten öffentlichen Mirrors.
+`run_after_45-symlink-vault-ssh.sh.tmpl` verlinkt bei jedem `chezmoi apply`
+automatisch alle Dateien aus `ssh/<hostname>/` nach `~/.ssh/` (Modus `700`)
+und räumt verwaiste Symlinks auf. Bewusst **kein** `ssh/common/` wie bei den
+Vault-Scripten: die Keys sind schon jetzt pro Maschine benannt (z.B.
+`x220.forgejo.key`), ein gemeinsamer Ordner würde sie per Syncthing auf
+jede andere Maschine replizieren und den Blast Radius bei Kompromittierung
+einer einzelnen Maschine unnötig vergrößern. Soll eine `config`-Zeile
+(z.B. ein Host-Alias) auf mehreren Maschinen identisch sein, muss sie
+aktuell auf jeder Maschine einzeln im jeweiligen `ssh/<hostname>/config`
+gepflegt werden.
+
 **Custom tealdeer-Pages** (`~/Sync/vault/tealdeer/pages/`): wird per
 nativem chezmoi-`symlink_`-Eintrag (`dot_local/share/tealdeer/symlink_pages.tmpl`)
 nach `~/.local/share/tealdeer/pages` verlinkt. Auch hier kein
@@ -106,7 +123,7 @@ Reihenfolge-Problem mit Syncthing: Der Symlink kann angelegt werden, bevor
 der Ordner durch Syncthing befüllt ist – er zeigt dann kurz ins Leere und
 heilt sich von selbst, sobald die Dateien ankommen.
 
-Beide Mechanismen hängen am Hostnamen und nutzen denselben Guard wie
+Alle drei Mechanismen hängen am Hostnamen und nutzen denselben Guard wie
 `dot_config/tmux/tmux.conf.tmpl`: ein unbekannter Hostname lässt
 `chezmoi apply` bewusst fehlschlagen statt still eine leere/falsche
 Maschine anzunehmen (siehe [Maschinenspezifische Werte](#maschinenspezifische-werte)

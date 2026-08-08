@@ -1,0 +1,54 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# HOSTNAME PRÜFEN
+# (gleiches Muster wie run_after_50-symlink-vault-scripts.sh.tmpl)
+# ══════════════════════════════════════════════════════════════════
+
+{{- $machine := index .machines .chezmoi.hostname -}}
+{{- if not $machine -}}
+{{   fail (printf "run_after_45-symlink-vault-ssh: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
+{{- end }}
+
+# ══════════════════════════════════════════════════════════════════
+# SSH-DATEIEN AUS DEM VAULT VERLINKEN
+# (läuft bei JEDEM Apply, nicht nur einmalig - analog zu
+#  run_after_50-symlink-vault-scripts.sh.tmpl. Private Keys,
+#  authorized_keys, config und known_hosts gehören NICHT ins
+#  Git-Repo (auch nicht age-verschlüsselt, wegen des geplanten
+#  öffentlichen Mirrors), sondern in den per Syncthing synchronisierten
+#  Vault. Bewusst NUR der hostname-Ordner, kein common/ - die Keys sind
+#  schon jetzt pro Maschine benannt (z.B. x220.forgejo.key), ein
+#  gemeinsamer common/-Ordner würde sie auf jede andere Maschine
+#  replizieren und den Blast Radius bei Kompromittierung unnötig
+#  vergrößern)
+# ══════════════════════════════════════════════════════════════════
+
+SSH_DIR="$HOME/.ssh"
+VAULT_SSH_DIR="$HOME/Sync/vault/ssh/{{ .chezmoi.hostname }}"
+
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+
+# ── Symlinks für vorhandene Vault-Dateien anlegen/aktualisieren ──
+# (find statt Glob, da `set -f` oben Pathname-Expansion deaktiviert;
+#  toleriert außerdem, dass der Vault-Ordner auf einer frischen
+#  Maschine noch nicht existiert, falls Syncthing noch nicht
+#  synchronisiert hat - ein dangling Symlink heilt sich dann von
+#  selbst, sobald Syncthing die Datei anlegt)
+if [ -d "$VAULT_SSH_DIR" ]; then
+  find "$VAULT_SSH_DIR" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' file; do
+    ln -sf "$file" "$SSH_DIR/$(basename "$file")"
+  done
+fi
+
+# ── verwaiste Symlinks entfernen (Quell-Datei im Vault gelöscht) ──
+find "$SSH_DIR" -maxdepth 1 -type l -print0 2>/dev/null | while IFS= read -r -d '' link; do
+  target=$(readlink "$link")
+  case "$target" in
+    "$VAULT_SSH_DIR"/*)
+      [ -e "$target" ] || rm "$link"
+      ;;
+  esac
+done
