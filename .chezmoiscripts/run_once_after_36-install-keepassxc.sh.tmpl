@@ -1,0 +1,17 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# KEEPASSXC (nur Linux - macOS läuft über den Cask im Brewfile)
+# Homebrew hat für KeePassXC nur einen macOS-Cask, kein
+# Linuxbrew-Formula - daher hier über apt.
+# ══════════════════════════════════════════════════════════════════
+
+if dpkg -s keepassxc >/dev/null 2>&1; then
+  echo "==> KeePassXC bereits installiert, überspringe."
+else
+  echo "==> Installiere KeePassXC..."
+  sudo apt-get install -y keepassxc
+fi
+{{ end -}}

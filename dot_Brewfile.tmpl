@@ -13,6 +13,7 @@ brew "erdtree"
 brew "lazygit"
 brew "mosh"
 brew "neovim"
+brew "qrcp"
 brew "ripgrep"
 brew "syncthing"
 brew "tealdeer"
@@ -21,10 +22,12 @@ brew "w3m"
 brew "wireguard-go"
 brew "wireguard-tools"
 brew "glow"
+brew "gimp"
 {{ if eq .chezmoi.os "darwin" }}
 # ══════════════════════════════════════════════════════════════════
 # CASKS (nur macOS - Linuxbrew kennt keine Casks)
 # ══════════════════════════════════════════════════════════════════
 
 cask "nomachine"
+cask "keepassxc"
 {{ end -}}
