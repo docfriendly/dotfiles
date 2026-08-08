@@ -1,0 +1,35 @@
+[G0]
+timername=10 Minuten
+time=600
+timercommand=
+timerinfo=10 Minuten 0 Sekunden
+is_countdown=true
+is_utc=false
+autostart=false
+
+[G1]
+timername=Pomodoro
+time=1500
+timercommand=
+timerinfo=25 Minuten 0 Sekunden
+is_countdown=true
+is_utc=false
+autostart=false
+
+[G2]
+timername=Nuri abholen
+time=915
+timercommand=
+timerinfo=Bei 15:15
+is_countdown=false
+is_utc=false
+autostart=false
+
+[others]
+nowin_if_alarm=false
+use_global_command=false
+global_command=
+repeat_alarm=false
+repetitions=1
+repeat_interval=10
+

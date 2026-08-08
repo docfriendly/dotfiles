@@ -77,6 +77,36 @@ XDG-Standardpfad `~/.config/`:
 werden, falls sie noch existieren. Auf einer echten Neuinstallation
 existieren sie ohnehin nicht, dort greift das schlicht ins Leere.
 
+## XFCE-Panel (MX Linux)
+
+`dot_config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml` sowie die
+Plugin-Configs unter `dot_config/xfce4/panel/*.rc` (`docklike-2.rc`,
+`netload-14.rc`, `xfce4-timer-plugin-21.rc`) versionieren die persönliche
+Taskleisten-Konfiguration. XFCE beobachtet diese Dateien per inotify, ein
+`chezmoi apply` übernimmt Änderungen daher meist sofort, ohne dass die
+Panel neu gestartet werden muss.
+
+Zwei Dinge, die bei einer Neuinstallation auf einer **anderen Distro als
+MX Linux** zu beachten sind:
+
+- **Drittanbieter-Panel-Plugins selbst installieren.** `docklike`,
+  `netload`, `cpugraph`, `xfce4-timer-plugin` und `whiskermenu` sind keine
+  Kernbestandteile von xfce4-panel und werden von chezmoi/Homebrew nicht
+  automatisch installiert. Fehlen sie, bleibt der jeweilige Panel-Slot
+  leer bzw. fehlerhaft – der Rest der Panel funktioniert trotzdem, es
+  bricht nichts ab.
+- **MX-spezifische Einträge sind kosmetisch tot, nicht fatal.**
+  Whiskermenu-Favoriten (`mx-tools.desktop`,
+  `mx-packageinstaller.desktop`, ...), das Icon
+  `/usr/share/icons/mxfcelogo-rounded.png` sowie die
+  `mx-updater`/`apt-notifier.py`-Einträge im Systray existieren auf
+  anderen Distros nicht. XFCE ignoriert fehlende `.desktop`-Dateien und
+  Icons einfach (Fallback-Icon) – wirkt nur unaufgeräumt, verhindert aber
+  kein `chezmoi apply`.
+
+Lohnt sich aktuell nicht vorab zu templaten/bereinigen – erst relevant,
+falls regelmäßig zwischen MX und einer anderen Distro gewechselt wird.
+
 ## Vault-Scripts, SSH & Custom Pages (Syncthing)
 
 `~/Sync/vault` ist ein per Syncthing zwischen den Maschinen synchronisierter
