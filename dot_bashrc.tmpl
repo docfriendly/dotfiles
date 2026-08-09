@@ -145,6 +145,20 @@ esac
 # Nach jedem Kommando: History sichern und neu einlesen
 export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; history -c; history -r"
 
+# Merkt sich (rein lesend aus der History, ruft sudo selbst NIE auf) wann
+# zuletzt "sudo ..." getippt wurde. Basis für die starship-Anzeige, ob das
+# sudo-Timestamp-Cache noch warm ist, ohne das Fenster durch den Check selbst
+# zu verlängern (siehe [custom.sudo_cache] in starship.toml).
+_track_sudo_use() {
+  local last
+  read -r last _ <<<"$(fc -ln -1 2>/dev/null)"
+  if [ "$last" = "sudo" ]; then
+    mkdir -p "$HOME/.cache" 2>/dev/null
+    touch "$HOME/.cache/sudo-last-used" 2>/dev/null
+  fi
+}
+export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}_track_sudo_use"
+
 # ══════════════════════════════════════════════════════════════════
 # TOOL-INIT / UMGEBUNG
 # WICHTIG: starship/zoxide müssen ganz am Ende der Datei initialisiert

@@ -267,15 +267,20 @@ style = "bold fg:red"
 format = "[$symbol $output]($style) "
 shell = ["bash", "--noprofile", "--norc"]
 
-# Zeigt, ob das sudo-Timestamp-Cache noch "warm" ist (nächster sudo-Aufruf
-# würde nicht nach dem Passwort fragen). Achtung: der Check (`sudo -n true`)
-# zählt selbst als Nutzung und verlängert das Fenster wie ein echter
-# sudo-Aufruf - solange aktiv im Terminal gearbeitet wird, bleibt es dadurch
-# meist warm; kühlt erst ab, wenn länger kein neuer Prompt gerendert wird.
+# Zeigt, ob das sudo-Timestamp-Cache voraussichtlich noch "warm" ist
+# (nächster sudo-Aufruf würde vermutlich nicht nach dem Passwort fragen).
+# Fragt sudo dafür NICHT selbst ab (das würde das Fenster durch den Check
+# selbst verlängern) - stattdessen Heuristik über die Marker-Datei aus dem
+# _track_sudo_use-Hook in .bashrc (nur gesetzt, wenn "sudo" tatsächlich
+# getippt wurde) gegen einen angenommenen 15-min-Timeout (sudo-Default;
+# bei abweichendem timestamp_timeout in /etc/sudoers hier die 900 anpassen).
 [custom.sudo_cache]
-description = "sudo-Timestamp-Cache warm?"
+description = "sudo-Timestamp-Cache voraussichtlich warm? (Heuristik, 15 min)"
 command = "echo 🔓"
-when = "sudo -n true 2>/dev/null"
+when = '''
+f="$HOME/.cache/sudo-last-used"
+[ -f "$f" ] && [ "$(( $(date +%s) - $(stat -c %Y "$f") ))" -lt 900 ]
+'''
 format = "[$output]($style) "
 style = "bold fg:yellow"
 shell = ["bash", "--noprofile", "--norc"]
