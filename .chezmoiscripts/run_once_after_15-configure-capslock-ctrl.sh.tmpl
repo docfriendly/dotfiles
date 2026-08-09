@@ -1,0 +1,27 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# CAPSLOCK ALS STRG (nur Linux - via /etc/default/keyboard)
+# Setzt die XKB-Option "ctrl:nocaps", damit CapsLock als zusätzliche
+# Strg-Taste fungiert. Gilt systemweit (TTY, Display-Manager, alle
+# Desktop-Umgebungen), siehe keyboard(5).
+# ══════════════════════════════════════════════════════════════════
+
+KEYBOARD_FILE="/etc/default/keyboard"
+CURRENT_OPTIONS="$(grep -oP '(?<=^XKBOPTIONS=").*(?=")' "$KEYBOARD_FILE" || true)"
+
+if [[ ",$CURRENT_OPTIONS," == *,ctrl:nocaps,* ]]; then
+  echo "==> ctrl:nocaps bereits in $KEYBOARD_FILE gesetzt, überspringe."
+else
+  if [ -z "$CURRENT_OPTIONS" ]; then
+    NEW_OPTIONS="ctrl:nocaps"
+  else
+    NEW_OPTIONS="${CURRENT_OPTIONS},ctrl:nocaps"
+  fi
+  echo "==> Setze XKBOPTIONS=\"$NEW_OPTIONS\" in $KEYBOARD_FILE..."
+  sudo sed -i "s/^XKBOPTIONS=.*/XKBOPTIONS=\"$NEW_OPTIONS\"/" "$KEYBOARD_FILE"
+  sudo setupcon
+fi
+{{ end -}}
