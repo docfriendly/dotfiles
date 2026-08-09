@@ -294,7 +294,7 @@ echo "$(( (remaining + 59) / 60 ))m"
 when = "sudo -Nnv"
 symbol = "🔓"
 format = "[$symbol $output]($style) "
-style = "bold fg:yellow"
+style = "bold fg:red"
 shell = ["bash", "--noprofile", "--norc"]
 
 [custom.ssh_no_keys]
