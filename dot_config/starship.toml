@@ -240,22 +240,24 @@ symbol = " "
   format = "[$output]($style) "
 
 # Warnt, wenn harry auf diesem Host Mitglied einer der überwachten
-# privilegierten Gruppen ist (adm/sudo/disk/docker - de-facto root-Äquivalent
-# bzw. sudo-freier Log-/Systemzugriff). Wird von `forensic-mode` gesetzt;
-# unbedingt mit `forensic-mode off <gruppe>` wieder entfernen.
+# privilegierten Gruppen ist (adm/disk/docker - de-facto root-Äquivalent bzw.
+# sudo-freier Log-/Systemzugriff). "sudo" bewusst NICHT dabei: das ist für
+# harry normal/gewollt, würde als Dauerzustand die eigentlichen Ausreißer nur
+# übertönen. Wird von `forensic-mode` gesetzt; unbedingt mit
+# `forensic-mode off <gruppe>` wieder entfernen.
 [custom.privgroups]
 description = "Warnung vor privilegierten Gruppenmitgliedschaften"
 command = '''
 groups=" $(id -nG) "
 out=""
-for g in adm sudo disk docker; do
+for g in adm disk docker; do
   case "$groups" in *" $g "*) out="$out $g" ;; esac
 done
 echo "${out# }"
 '''
 when = '''
 groups=" $(id -nG) "
-for g in adm sudo disk docker; do
+for g in adm disk docker; do
   case "$groups" in *" $g "*) exit 0 ;; esac
 done
 exit 1

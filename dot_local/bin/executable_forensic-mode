@@ -52,7 +52,7 @@ cmd_status() {
   # sofort erledigt, obwohl der Account-Eintrag (das eigentliche Risiko) noch
   # da ist - oder umgekehrt zeigt die alte Shell noch rot, obwohl schon "off".
   local g account=() session=()
-  for g in adm sudo disk docker; do
+  for g in adm disk docker; do
     if id -nG "$USER" | grep -qw "$g"; then
       account+=("$g")
     fi
@@ -62,7 +62,7 @@ cmd_status() {
   done
   echo "Account auf $(hostname) (/etc/group, gilt bis 'off'):"
   if [ "${#account[@]}" -eq 0 ]; then
-    echo "  🟢 keine der überwachten Gruppen (adm/sudo/disk/docker)"
+    echo "  🟢 keine der überwachten Gruppen (adm/disk/docker; sudo wird bewusst nicht gewarnt)"
   else
     echo "  🔴 ${account[*]}"
   fi
