@@ -19,6 +19,11 @@ read_only = " 󰌾"
 [aws]
 symbol = " "
 
+[battery]
+[[battery.display]]
+threshold = 25
+style = "red bold"
+
 [buf]
 symbol = " "
 
@@ -326,10 +331,14 @@ format = "[ $output]($style) "
 shell = ["bash", "--noprofile", "--norc"]
 style = "bold fg:magenta"
 
-# Shell nesting depth (subshells, sudo -s, chezmoi cd, ...) - tmux-bereinigt:
-# SSH/mosh + tmux ist der Normalfall (SHLVL=2) und bleibt stumm; nur wenn
-# innerhalb von tmux zusätzlich genestet wird (>=3) oder außerhalb von tmux
-# schon ab Level 2 genestet wird, wird angezeigt.
+# ══════════════════════════════════════════════════════════════════
+# SHELL-VERSCHACHTELUNG (subshells, sudo -s, chezmoi cd, ...)
+# tmux-bereinigt: SSH/mosh + tmux ist der Normalfall (SHLVL=2) und bleibt
+# stumm; nur wenn innerhalb von tmux zusätzlich genestet wird (>=3) oder
+# außerhalb von tmux schon ab Level 2 genestet wird, wird angezeigt.
+# Das eingebaute [shlvl]-Modul kann das nicht: threshold ist ein fixer
+# TOML-Wert, keine dynamische Bedingung auf $TMUX. Daher custom-Modul.
+# ══════════════════════════════════════════════════════════════════
 [custom.shlvl]
 description = "Shell nesting depth, tmux-bereinigt"
 command = 'echo $SHLVL'
