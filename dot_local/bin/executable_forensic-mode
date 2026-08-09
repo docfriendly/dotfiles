@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# forensic-mode: privilegierte Gruppenmitgliedschaft (z.B. adm) temporär
+# vergeben/entziehen, damit Log-/Systemkommandos in einer Ad-hoc-SSH-Session
+# ohne "sudo" nutzbar sind - ohne dass man vergisst, es wieder rückgängig zu
+# machen. Die Warnung dazu läuft über starship: dot_config/starship.toml,
+# Modul [custom.privgroups].
+set -euo pipefail
+
+DEFAULT_GROUP="adm"
+STATE_LOG="$HOME/.local/state/forensic-mode.log"
+
+usage() {
+  cat <<EOF
+Usage: forensic-mode on|off|status [gruppe]
+
+  on [gruppe]      Fügt \$USER zur Gruppe hinzu (Default: $DEFAULT_GROUP)
+  off [gruppe]     Entfernt \$USER wieder aus der Gruppe
+  status           Zeigt aktuelle Mitgliedschaft + letzte Aktionen
+
+Wichtig: usermod/gpasswd wirken erst in einer NEUEN Login-Session.
+Nach "on":  neu einloggen oder "exec sudo su - \$USER"
+Nach "off": zur Sicherheit ebenfalls neu einloggen.
+EOF
+}
+
+log_state() {
+  mkdir -p "$(dirname "$STATE_LOG")"
+  printf '%s  %-4s group=%s host=%s\n' "$(date -Is)" "$1" "$2" "$(hostname)" >>"$STATE_LOG"
+}
+
+cmd_on() {
+  local group="${1:-$DEFAULT_GROUP}"
+  sudo usermod -aG "$group" "$USER"
+  log_state "ON" "$group"
+  echo "✅ $USER zu '$group' hinzugefügt (Host: $(hostname))."
+  echo "⚠️  Wirkt erst in neuer Session: neu einloggen oder 'exec sudo su - $USER'."
+  echo "   Denk dran: forensic-mode off $group"
+}
+
+cmd_off() {
+  local group="${1:-$DEFAULT_GROUP}"
+  sudo gpasswd -d "$USER" "$group" >/dev/null
+  log_state "OFF" "$group"
+  echo "✅ $USER aus '$group' entfernt (Host: $(hostname))."
+  echo "⚠️  Aktuelle Shell hat evtl. noch die alte Gruppenliste im Cache - sicherheitshalber neu einloggen."
+}
+
+cmd_status() {
+  # Account (/etc/group via NSS) und aktuelle Shell-Session (Prozess-Credentials,
+  # siehe id(1)) können auseinanderlaufen: usermod/gpasswd wirken erst nach
+  # Neu-Login. Deshalb beides getrennt zeigen, sonst wirkt "off" fälschlich
+  # sofort erledigt, obwohl der Account-Eintrag (das eigentliche Risiko) noch
+  # da ist - oder umgekehrt zeigt die alte Shell noch rot, obwohl schon "off".
+  local g account=() session=()
+  for g in adm sudo disk docker; do
+    if id -nG "$USER" | grep -qw "$g"; then
+      account+=("$g")
+    fi
+    if id -nG | grep -qw "$g"; then
+      session+=("$g")
+    fi
+  done
+  echo "Account auf $(hostname) (/etc/group, gilt bis 'off'):"
+  if [ "${#account[@]}" -eq 0 ]; then
+    echo "  🟢 keine der überwachten Gruppen (adm/sudo/disk/docker)"
+  else
+    echo "  🔴 ${account[*]}"
+  fi
+  echo "Diese Shell-Session (wirkt erst nach Neu-Login):"
+  if [ "${#session[@]}" -eq 0 ]; then
+    echo "  🟢 keine der überwachten Gruppen aktiv"
+  else
+    echo "  🔴 ${session[*]}"
+  fi
+  if [ -f "$STATE_LOG" ]; then
+    echo "--- letzte Aktionen ---"
+    tail -n 5 "$STATE_LOG"
+  fi
+}
+
+case "${1:-}" in
+  on) shift; cmd_on "${1:-}" ;;
+  off) shift; cmd_off "${1:-}" ;;
+  status) cmd_status ;;
+  *) usage; exit 1 ;;
+esac

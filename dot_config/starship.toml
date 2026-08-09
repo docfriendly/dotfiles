@@ -239,6 +239,32 @@ symbol = " "
   style = "bold yellow"                                                                                                                                                                                                                                                  
   format = "[$output]($style) "
 
+# Warnt, wenn harry auf diesem Host Mitglied einer der überwachten
+# privilegierten Gruppen ist (adm/sudo/disk/docker - de-facto root-Äquivalent
+# bzw. sudo-freier Log-/Systemzugriff). Wird von `forensic-mode` gesetzt;
+# unbedingt mit `forensic-mode off <gruppe>` wieder entfernen.
+[custom.privgroups]
+description = "Warnung vor privilegierten Gruppenmitgliedschaften"
+command = '''
+groups=" $(id -nG) "
+out=""
+for g in adm sudo disk docker; do
+  case "$groups" in *" $g "*) out="$out $g" ;; esac
+done
+echo "${out# }"
+'''
+when = '''
+groups=" $(id -nG) "
+for g in adm sudo disk docker; do
+  case "$groups" in *" $g "*) exit 0 ;; esac
+done
+exit 1
+'''
+symbol = "🛡"
+style = "bold fg:red"
+format = "[$symbol $output]($style) "
+shell = ["bash", "--noprofile", "--norc"]
+
 [custom.ssh_no_keys]
 description = "SSH missing keys"
 when = "ssh-add -l | grep -q 'no identities'"
