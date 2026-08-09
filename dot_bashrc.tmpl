@@ -145,32 +145,12 @@ esac
 # Nach jedem Kommando: History sichern und neu einlesen
 export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; history -c; history -r"
 
-# sudo cached standardmäßig PRO TTY (tty_tickets), nicht global pro User -
-# jede neue Session hat also eigentlich ihr eigenes, zunächst kaltes Cache,
-# selbst wenn woanders gerade eine warme Session offen ist. Der Marker muss
-# das nachbilden, sonst zeigt eine frisch eingeloggte Session fälschlich
-# warm, nur weil irgendeine andere Session kürzlich sudo benutzt hat. Export,
-# damit starships Custom-Modul-Subshell (eigener stdin/stdout, `tty` dort
-# ggf. nicht verlässlich) denselben Wert sieht.
-export _SUDO_CACHE_TTY="$(tty 2>/dev/null | tr -c 'A-Za-z0-9' '_')"
-export _SUDO_CACHE_FILE="$HOME/.cache/sudo-last-used${_SUDO_CACHE_TTY:+.$_SUDO_CACHE_TTY}"
-
-# Merkt sich (rein lesend aus der History, ruft sudo selbst NIE auf) wann
-# zuletzt "sudo ..." getippt wurde. Basis für die starship-Anzeige, ob das
-# sudo-Timestamp-Cache noch warm ist, ohne das Fenster durch den Check selbst
-# zu verlängern (siehe [custom.sudo_cache] in starship.toml).
-_track_sudo_use() {
-  local last
-  read -r last _ <<<"$(fc -ln -1 2>/dev/null)"
-  if [ "$last" = "sudo" ]; then
-    mkdir -p "$HOME/.cache" 2>/dev/null
-    touch "$_SUDO_CACHE_FILE" 2>/dev/null
-  fi
-}
-# Registrierung bewusst NICHT hier (siehe unten, nach dem Tool-Init-Block):
-# starship hängt sich bei "starship init bash" vorne an PROMPT_COMMAND -
-# eine Registrierung hier würde also NACH starship_precmd laufen, also erst
-# einen Prompt zu spät.
+# _track_sudo_use (Funktion + $_SUDO_CACHE_FILE-Export) liegt in
+# ~/.bash_aliases, das oben in ALIASE bereits geladen wurde. Registrierung
+# in PROMPT_COMMAND bewusst NICHT hier (siehe unten, nach dem
+# Tool-Init-Block): starship hängt sich bei "starship init bash" vorne an
+# PROMPT_COMMAND - eine Registrierung hier würde also NACH starship_precmd
+# laufen, also erst einen Prompt zu spät.
 
 # ══════════════════════════════════════════════════════════════════
 # TOOL-INIT / UMGEBUNG

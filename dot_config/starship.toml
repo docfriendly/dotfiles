@@ -267,19 +267,18 @@ style = "bold fg:red"
 format = "[$symbol $output]($style) "
 shell = ["bash", "--noprofile", "--norc"]
 
-# Zeigt, ob das sudo-Timestamp-Cache voraussichtlich noch "warm" ist
-# (nächster sudo-Aufruf würde vermutlich nicht nach dem Passwort fragen).
-# Fragt sudo dafür NICHT selbst ab (das würde das Fenster durch den Check
-# selbst verlängern) - stattdessen Heuristik über die Marker-Datei aus dem
-# _track_sudo_use-Hook in .bashrc (nur gesetzt, wenn "sudo" tatsächlich
-# getippt wurde) gegen einen angenommenen 15-min-Timeout (sudo-Default;
-# bei abweichendem timestamp_timeout in /etc/sudoers hier die 900 anpassen).
-# Marker-Datei ist pro TTY benannt (siehe $_SUDO_CACHE_FILE in .bashrc),
-# weil sudo selbst standardmäßig auch pro TTY cached (tty_tickets) - sonst
-# zeigt eine frisch eingeloggte Session fälschlich warm, nur weil eine
-# andere offene Session kürzlich sudo benutzt hat.
+# Zeigt, ob das sudo-Timestamp-Cache aktuell warm ist (nächster sudo-Aufruf
+# würde nicht nach dem Passwort fragen). Das "ob" kommt jetzt von sudo selbst
+# (`sudo -Nnv`, ground truth statt Heuristik: respektiert tty_tickets/echten
+# timestamp_timeout automatisch) - -N/--no-update verlängert das Fenster
+# dabei NICHT (bestätigt: sudo 1.9.16p2, siehe `man sudo`). Die "~Xm"-Angabe
+# bleibt Heuristik über die Marker-Datei aus dem _track_sudo_use-Hook in
+# .bashrc, weil sudo selbst keine "verbleibende Sekunden"-Abfrage anbietet;
+# falls Marker fehlt/abgelaufen aber sudo trotzdem warm meldet (z.B. weil
+# der echte timestamp_timeout von den angenommenen 15 min abweicht), wird
+# nur der Symbol ohne Minutenangabe gezeigt statt falscher Zahlen.
 [custom.sudo_cache]
-description = "sudo-Timestamp-Cache voraussichtlich warm? (Heuristik, 15 min, pro TTY) inkl. verbleibender Zeit"
+description = "sudo-Timestamp-Cache warm? (ground truth via sudo -Nnv) inkl. geschätzter Restzeit"
 command = '''
 f="${_SUDO_CACHE_FILE:-$HOME/.cache/sudo-last-used}"
 mt=$(stat -c %Y "$f" 2>/dev/null) || exit 0
@@ -287,10 +286,7 @@ remaining=$(( 900 - ($(date +%s) - mt) ))
 [ "$remaining" -le 0 ] && exit 0
 echo "$(( (remaining + 59) / 60 ))m"
 '''
-when = '''
-f="${_SUDO_CACHE_FILE:-$HOME/.cache/sudo-last-used}"
-[ -f "$f" ] && [ "$(( $(date +%s) - $(stat -c %Y "$f") ))" -lt 900 ]
-'''
+when = "sudo -Nnv"
 symbol = "🔓"
 format = "[$symbol $output]($style) "
 style = "bold fg:yellow"
