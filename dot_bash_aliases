@@ -28,6 +28,9 @@ alias l='ls -CF'                  # kompakte Spaltenansicht mit Typkennzeichen
 # sudo-Trick: erlaubt Expansion eigener Aliase auch nach "sudo"
 alias sudo='sudo '
 
+# glow mit Pager
+alias glowp='glow -p'
+
 # ══════════════════════════════════════════════════════════════════
 # FUNKTIONEN
 # (auch wenn's keine Aliase sind: hier statt in der .bashrc, da diese
