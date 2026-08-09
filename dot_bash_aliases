@@ -80,6 +80,22 @@ tealdeer() {
   fi
 }
 
+# `nvim cd`: springt in Analogie zu `chezmoi cd` direkt (kein Subshell)
+# ins LazyVim-Config-Verzeichnis. Pfad kommt dynamisch von nvim selbst
+# (vim.fn.stdpath("config")) statt hartkodiertem ~/.config/nvim, falls
+# XDG_CONFIG_HOME mal abweicht. Eigene Wrapper-Funktion statt das echte
+# Binary nur bedingt zu überschreiben, da "cd" sonst als (nicht
+# existierender) Dateiname an nvim durchgereicht würde.
+nvim() {
+  if [ "$1" = cd ]; then
+    local dir
+    dir=$(command nvim --headless +'lua io.write(vim.fn.stdpath("config"))' +qa 2>/dev/null) || return
+    builtin cd "$dir"
+  else
+    command nvim "$@"
+  fi
+}
+
 # sudo cached standardmäßig PRO TTY (tty_tickets), nicht global pro User -
 # jede neue Session hat also eigentlich ihr eigenes, zunächst kaltes Cache,
 # selbst wenn woanders gerade eine warme Session offen ist. Der Marker muss

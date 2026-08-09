@@ -107,6 +107,31 @@ MX Linux** zu beachten sind:
 Lohnt sich aktuell nicht vorab zu templaten/bereinigen – erst relevant,
 falls regelmäßig zwischen MX und einer anderen Distro gewechselt wird.
 
+## Neovim (LazyVim)
+
+`dot_config/nvim/` versioniert die [LazyVim](https://www.lazyvim.org/)-Config
+direkt im Hauptrepo (kein separates Git-Repo für nvim, dafür ist die
+eigene Anpassungstiefe zu gering). Mitversioniert sind u.a.:
+
+- `lazyvim.json` – die aktivierten LazyVim-Extras (`:LazyExtras`); das ist
+  aktuell die einzige nennenswerte eigene Anpassung
+- `lazy-lock.json` – Plugin-Versions-Pins. Bewusst mitversioniert (nicht
+  `.gitignore`t), damit alle Maschinen dieselben Plugin-Commits
+  installieren und ein kaputtes Update sich per `git checkout
+  lazy-lock.json` + `:Lazy restore` zurückrollen lässt
+- `lua/config/*.lua`, `stylua.toml`, `.neoconf.json`
+
+Nicht mitversioniert sind `README.md`, `LICENSE` und `.gitignore` aus
+`~/.config/nvim` – das sind Reste des LazyVim-Starter-Templates selbst
+(beschreiben das Template, nicht die eigene Config) und bleiben lokal
+unmanaged liegen. Neue eigene Plugin-Specs kommen als einzelne Dateien
+unter `lua/plugins/*.lua` (das Starter-Beispiel `example.lua` wurde
+gelöscht, da es nur totes Beispiel war).
+
+`nvim cd` (Funktion in `dot_bash_aliases`) springt direkt ins
+Config-Verzeichnis, Pfad dynamisch von nvim selbst erfragt statt
+hartkodiert.
+
 ## Vault-Scripts, SSH & Custom Pages (Syncthing)
 
 `~/Sync/vault` ist ein per Syncthing zwischen den Maschinen synchronisierter

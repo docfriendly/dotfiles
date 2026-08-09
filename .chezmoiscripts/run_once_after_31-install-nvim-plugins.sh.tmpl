@@ -1,0 +1,28 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# BREW-PFAD ERMITTELN
+# (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.os "darwin" -}}
+BREW_PREFIX="/opt/homebrew"
+{{- else -}}
+BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+{{- end }}
+
+eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
+
+# ══════════════════════════════════════════════════════════════════
+# LAZYVIM-PLUGINS HEADLESS INSTALLIEREN
+# (liest lazy-lock.json, das per chezmoi verwaltet wird - läuft daher
+#  bewusst als run_once_after. lazy.nvim selbst klont sich beim ersten
+#  require("config.lazy") aus init.lua automatisch, auch headless.
+#  "Lazy! restore" installiert fehlende Plugins in genau den im Lockfile
+#  gepinnten Commits, statt der jeweils neuesten Version - erspart den
+#  sichtbaren Install-Lauf beim allerersten interaktiven `nvim`-Start.)
+# ══════════════════════════════════════════════════════════════════
+
+echo "==> Installiere LazyVim-Plugins headless..."
+nvim --headless "+Lazy! restore" +qa
