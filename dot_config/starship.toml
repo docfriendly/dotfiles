@@ -274,11 +274,15 @@ shell = ["bash", "--noprofile", "--norc"]
 # _track_sudo_use-Hook in .bashrc (nur gesetzt, wenn "sudo" tatsächlich
 # getippt wurde) gegen einen angenommenen 15-min-Timeout (sudo-Default;
 # bei abweichendem timestamp_timeout in /etc/sudoers hier die 900 anpassen).
+# Marker-Datei ist pro TTY benannt (siehe $_SUDO_CACHE_FILE in .bashrc),
+# weil sudo selbst standardmäßig auch pro TTY cached (tty_tickets) - sonst
+# zeigt eine frisch eingeloggte Session fälschlich warm, nur weil eine
+# andere offene Session kürzlich sudo benutzt hat.
 [custom.sudo_cache]
-description = "sudo-Timestamp-Cache voraussichtlich warm? (Heuristik, 15 min)"
+description = "sudo-Timestamp-Cache voraussichtlich warm? (Heuristik, 15 min, pro TTY)"
 command = "echo 🔓"
 when = '''
-f="$HOME/.cache/sudo-last-used"
+f="${_SUDO_CACHE_FILE:-$HOME/.cache/sudo-last-used}"
 [ -f "$f" ] && [ "$(( $(date +%s) - $(stat -c %Y "$f") ))" -lt 900 ]
 '''
 format = "[$output]($style) "
