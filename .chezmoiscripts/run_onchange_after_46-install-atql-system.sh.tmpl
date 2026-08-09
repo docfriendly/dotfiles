@@ -1,0 +1,14 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# ATQL NACH /usr/local/bin KOPIEREN
+# (sudo nutzt einen gehärteten secure_path ohne ~/.local/bin - "sudo atql"
+#  würde sonst trotz PATH-Eintrag scheitern. Kopie statt Symlink, damit
+#  root beim Ausführen via sudo keine Datei aus einem user-schreibbaren
+#  Verzeichnis startet. Läuft nur erneut, wenn sich atql ändert - der
+#  Hash unten sorgt dafür, dass chezmoi das Skript als "geändert" erkennt.
+# atql hash: {{ include "dot_local/bin/executable_atql" | sha256sum }}
+# ══════════════════════════════════════════════════════════════════
+
+sudo install -m 755 "$HOME/.local/bin/atql" /usr/local/bin/atql
