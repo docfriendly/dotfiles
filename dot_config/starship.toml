@@ -4,7 +4,7 @@ format = """\
 $all\
 ${custom.db_migrate}$fill$ruby$custom\
 $line_break\
-$shlvl$jobs$character"""
+${custom.shlvl}$jobs$character"""
 
 [directory]
 truncation_length = 4
@@ -273,10 +273,21 @@ format = "[ $output]($style) "
 shell = ["bash", "--noprofile", "--norc"]
 style = "bold fg:magenta"
 
-# Shell nesting depth (subshells, sudo -s, chezmoi cd, ...)
-[shlvl]
-disabled = false
+# Shell nesting depth (subshells, sudo -s, chezmoi cd, ...) - tmux-bereinigt:
+# SSH/mosh + tmux ist der Normalfall (SHLVL=2) und bleibt stumm; nur wenn
+# innerhalb von tmux zusätzlich genestet wird (>=3) oder außerhalb von tmux
+# schon ab Level 2 genestet wird, wird angezeigt.
+[custom.shlvl]
+description = "Shell nesting depth, tmux-bereinigt"
+command = 'echo $SHLVL'
+when = '''
+if [ -n "$TMUX" ]; then
+  [ "$SHLVL" -ge 3 ]
+else
+  [ "$SHLVL" -ge 2 ]
+fi
+'''
 symbol = "⇊ "
-threshold = 2
 style = "bold yellow"
-format = "[$symbol$shlvl]($style) "
+format = "$symbol[$output]($style) "
+shell = ["bash", "--noprofile", "--norc"]
