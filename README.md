@@ -159,10 +159,11 @@ das nicht, da es nie selbst mit vorangestelltem `sudo` aufgerufen wird,
 sondern intern gezielt `sudo usermod`/`gpasswd` nutzt (liegen schon in
 `secure_path`).
 
-Beispiele aus dem Repo: `atql`/`forensic-mode` (Repo-Script), die
-`cd`-Wrapper `chezmoi`/`tealdeer`/`nvim` sowie `findgrep` und
-`_track_sudo_use` (Shell-Funktion, alle in `dot_bash_aliases`),
-`tmux-save-buffer` (Vault-Symlink, siehe nächster Abschnitt).
+Beispiele aus dem Repo: `atql`/`forensic-mode`/`tmux-save-buffer`
+(Repo-Script), die `cd`-Wrapper `chezmoi`/`tealdeer`/`nvim` sowie
+`findgrep` und `_track_sudo_use` (Shell-Funktion, alle in
+`dot_bash_aliases`), `check_connection.sh` (Vault-Symlink, x230, siehe
+nächster Abschnitt).
 
 ## Vault-Scripts, SSH & Custom Pages (Syncthing)
 

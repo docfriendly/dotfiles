@@ -1,0 +1,113 @@
+#!/bin/bash
+set -euo pipefail
+
+TARGET=""
+OUTPUT=""
+LINES=""
+ANCHOR_LINES=20
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -t) TARGET="$2"; shift 2 ;;
+        -n) LINES="$2"; shift 2 ;;
+        *)  OUTPUT="$1"; shift ;;
+    esac
+done
+
+if [[ -z "$TARGET" ]]; then
+    SELECTION=$(tmux list-panes -a \
+        -F "#{session_name}:#{window_index}.#{pane_index}  [#{session_name}] #{window_name} – #{pane_current_command}" \
+        | fzf --prompt="Pane: " --height=40% --reverse) || { echo "Abgebrochen."; exit 1; }
+    TARGET=$(echo "$SELECTION" | awk '{print $1}')
+fi
+
+OUTPUT="${OUTPUT:-$PWD/tmux-session-$(date +%Y-%m-%d-%H%M%S).txt}"
+
+# -- Zeilen-Auswahl (Preset, freie Eingabe, oder Abgleich mit alter Datei) --
+if [[ -z "$LINES" ]]; then
+    RESULT=$(printf "ALLE\n200\n500\nAndere Anzahl ...\nNEUE Zeilen (alte Datei angeben)\n" \
+        | fzf --prompt="Zeilen: " \
+              --header="Scrollback-Zeilen — Preset wählen, Zahl eintippen + Enter, oder Option wählen" \
+              --print-query --bind="enter:accept-or-print-query" \
+              --height=30% --reverse) || { echo "Abgebrochen."; exit 1; }
+    QUERY=$(printf '%s' "$RESULT" | sed -n '1p')
+    SELECTED=$(printf '%s' "$RESULT" | sed -n '2p')
+    LINES="${SELECTED:-$QUERY}"
+fi
+
+if [[ "$LINES" == "Andere Anzahl"* ]]; then
+    read -rp "Anzahl Zeilen: " LINES
+fi
+
+# -- Modus: nur neue Zeilen seit einer vorhandenen Datei --------------------
+if [[ "$LINES" == "NEUE Zeilen"* ]]; then
+    OLD_FILE=$(find . -maxdepth 4 -type f 2>/dev/null \
+        | fzf --prompt="Alte Datei: " --height=40% --reverse \
+              --preview 'tail -n 20 {} 2>/dev/null') || { echo "Abgebrochen."; exit 1; }
+    [[ -z "$OLD_FILE" ]] && { echo "Keine Datei gewählt."; exit 1; }
+
+    FULL_TMP=$(mktemp)
+    trap 'rm -f "$FULL_TMP"' EXIT
+    tmux capture-pane -S - -t "$TARGET" -p > "$FULL_TMP"
+
+    read -r STATUS MATCH_END MATCH_K < <(awk -v K="$ANCHOR_LINES" '
+        NR==FNR { old[FNR]=$0; oldn=FNR; next }
+        { full[FNR]=$0; fulln=FNR }
+        END {
+            k = K; if (oldn < k) k = oldn
+            if (k < 3) { print "TOO_SHORT", 0, 0; exit }
+            for (i = 1; i <= k; i++) anchor[i] = old[oldn - k + i]
+            match_end = 0
+            for (e = k; e <= fulln; e++) {
+                ok = 1
+                for (i = 1; i <= k; i++) {
+                    if (full[e - k + i] != anchor[i]) { ok = 0; break }
+                }
+                if (ok) match_end = e
+            }
+            if (match_end == 0) { print "NO_MATCH", 0, k; exit }
+            print "MATCH", match_end, k
+        }
+    ' "$OLD_FILE" "$FULL_TMP")
+
+    case "$STATUS" in
+        TOO_SHORT)
+            echo "'$OLD_FILE' hat weniger als 3 Zeilen — kein zuverlässiger Abgleich möglich." >&2
+            exit 1
+            ;;
+        NO_MATCH)
+            echo "In '$OLD_FILE' wurde keine übereinstimmende Zeilenfolge (letzte $MATCH_K Zeilen) im Pane-Puffer gefunden." >&2
+            echo "Evtl. wurde die Pane neu gestartet, die History ist zu kurz, oder die Datei stammt aus einer anderen Quelle." >&2
+            exit 1
+            ;;
+        MATCH)
+            TOTAL_FULL=$(wc -l < "$FULL_TMP")
+            if (( MATCH_END >= TOTAL_FULL )); then
+                echo "Keine neuen Zeilen seit '$OLD_FILE'." >&2
+                exit 1
+            fi
+            tail -n "+$((MATCH_END + 1))" "$FULL_TMP" > "$OUTPUT"
+            echo "Gespeichert: $OUTPUT  (Pane: $TARGET, $((TOTAL_FULL - MATCH_END)) neue Zeilen seit '$OLD_FILE', Abgleich über $MATCH_K Zeilen)"
+            exit 0
+            ;;
+    esac
+fi
+# ---------------------------------------------------------------------------
+
+if [[ "$LINES" != "ALLE" && ! "$LINES" =~ ^[0-9]+$ ]]; then
+    echo "Ungültige Zeilenanzahl: $LINES" >&2
+    exit 1
+fi
+
+# -- -S-Flag je nach Zeilen-Wahl setzen ------------------------------------
+if [[ -z "$LINES" || "$LINES" == "ALLE" ]]; then
+    tmux capture-pane -S - -t "$TARGET"
+    LINES_INFO="alle Zeilen"
+else
+    tmux capture-pane -S "-${LINES}" -t "$TARGET"
+    LINES_INFO="$LINES Zeilen"
+fi
+# ---------------------------------------------------------------------------
+
+tmux save-buffer "$OUTPUT"
+echo "Gespeichert: $OUTPUT  (Pane: $TARGET, $LINES_INFO)"
