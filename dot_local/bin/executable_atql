@@ -1,0 +1,10 @@
+#!/bin/bash
+###
+### Here Be Dragons
+###
+# atq/at respektieren Rechte selbst: als root siehst du alle Queues+Inhalte,
+# als normaler User nur deine eigenen. Keine manuelle Root-Unterscheidung noetig.
+atq | while read -r id rest; do
+	cmd=$(at -c "$id" | tail -n 2 | head -n 1)
+	echo -e "$id\t$rest\t\t\e[32m$cmd\e[0m"
+done
