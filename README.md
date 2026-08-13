@@ -204,8 +204,8 @@ einer einzelnen Maschine unnötig vergrößern. Soll eine `config`-Zeile
 aktuell auf jeder Maschine einzeln im jeweiligen `ssh/<hostname>/config`
 gepflegt werden.
 
-**Custom tealdeer-Pages** (`~/Sync/vault/tealdeer/pages/`): wird per
-nativem chezmoi-`symlink_`-Eintrag (`dot_local/share/tealdeer/symlink_pages.tmpl`)
+**Custom tealdeer-Pages** (`~/Sync/vault/SECOND_BRAIN/CLI-KONSOLENKOMMANDOS-NACHSCHLAGEWERK/tldr/`):
+wird per nativem chezmoi-`symlink_`-Eintrag (`dot_local/share/tealdeer/symlink_pages.tmpl`)
 nach `~/.local/share/tealdeer/pages` verlinkt. Auch hier kein
 Reihenfolge-Problem mit Syncthing: Der Symlink kann angelegt werden, bevor
 der Ordner durch Syncthing befüllt ist – er zeigt dann kurz ins Leere und
