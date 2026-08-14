@@ -152,6 +152,22 @@ export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; histor
 # PROMPT_COMMAND - eine Registrierung hier würde also NACH starship_precmd
 # laufen, also erst einen Prompt zu spät.
 
+# Tipp des Tages: bei jeder neuen interaktiven Shell ein zufälliges,
+# tatsächlich installiertes Kommando aus dem tldr-Cache zeigen (tealdeer
+# 1.8.1 hat kein eingebautes --random, daher hier per shuf gebaut; nur
+# Kommandos aus $PATH, nicht der volle ~7200-Seiten-Cache, sonst zu viel
+# Rauschen von nicht installierten Tools).
+if command -v tldr >/dev/null 2>&1; then
+  _tldr_tip=$(comm -12 <(tldr --list 2>/dev/null | sort -u) <(compgen -c | sort -u) | shuf -n 1)
+  if [ -n "$_tldr_tip" ]; then
+    _tldr_bar=$(printf '─%.0s' {1..60})
+    echo "── MOTD: $_tldr_tip $_tldr_bar"
+    tldr "$_tldr_tip"
+    echo "$_tldr_bar"
+  fi
+  unset _tldr_tip _tldr_bar
+fi
+
 # ══════════════════════════════════════════════════════════════════
 # TOOL-INIT / UMGEBUNG
 # WICHTIG: starship/zoxide müssen ganz am Ende der Datei initialisiert
