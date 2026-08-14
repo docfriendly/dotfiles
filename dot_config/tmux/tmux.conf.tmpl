@@ -31,9 +31,13 @@ set -g @plugin 'tmux-plugins/tpm'
 set -g @plugin 'tmux-plugins/tmux-sensible'
 set -g @plugin 'tmux-plugins/tmux-yank'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
+set -g @plugin 'tmux-plugins/tmux-continuum'
 
 # Restart processes with resurrect-plugin
 set -g @resurrect-processes '{{ $machine.tmux.resurrectProcesses }}'
+
+# Auto-Save/-Restore per continuum-plugin (Session-Daten bleiben lokal pro Maschine)
+set -g @continuum-restore 'on'
 
 # Other examples:
 # set -g @plugin 'github_username/plugin_name'
