@@ -1,3 +1,7 @@
 # Dokumentation im Repo-Root soll nicht als Zieldatei nach $HOME kopiert werden
 README.md
 TODO_syncthing.md
+
+# Quelldateien für den Ulauncher-Calc-Patch (schreibt nach /usr/lib/python3/dist-packages/...,
+# außerhalb von $HOME) - install.sh manuell ausführen, siehe README.md
+ulauncher-calc-patch

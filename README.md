@@ -107,6 +107,58 @@ MX Linux** zu beachten sind:
 Lohnt sich aktuell nicht vorab zu templaten/bereinigen – erst relevant,
 falls regelmäßig zwischen MX und einer anderen Distro gewechselt wird.
 
+## Ulauncher (Launcher + Calc-Patch)
+
+`dot_config/ulauncher/{settings.json,extensions.json,shortcuts.json}`
+versioniert die Ulauncher-Einstellungen (Theme, Hotkey, Shortcuts,
+Extensions-Liste). Zwei Dinge sind dabei bewusst **nicht** über chezmoi
+automatisiert, weil beide außerhalb von `$HOME` bzw. außerhalb dessen
+liegen, was chezmoi verwaltet:
+
+**1. Ulauncher-Paket selbst.** Kein apt/nala-Repo führt `ulauncher` auf
+Debian/MX (nur eine Ubuntu-PPA, die auf MX nicht nutzbar ist) – Installation
+über das offizielle `.deb` von den
+[GitHub Releases](https://github.com/Ulauncher/Ulauncher/releases):
+
+```bash
+curl -sLO https://github.com/Ulauncher/Ulauncher/releases/download/<version>/ulauncher_<version>_all.deb
+sudo apt install ./ulauncher_<version>_all.deb
+```
+
+**2. Extensions.** `extensions.json` beschreibt nur, welche Extensions
+gewünscht sind (Commit-Pins) – die eigentlichen Git-Checkouts unter
+`~/.local/share/ulauncher/extensions/<id>/` werden von Ulauncher **nicht**
+automatisch aus `extensions.json` nachgeladen, wenn der Ordner fehlt (nicht
+verifiziert, dass das je automatisch passiert – bislang immer manuell
+geklont). Nach einer Neuinstallation daher manuell:
+
+```bash
+cd ~/.local/share/ulauncher/extensions
+git clone https://github.com/sander76/ulauncher-keepassxc com.github.sander76.ulauncher-keepassxc
+git clone https://github.com/ubuntupunk/ulauncher-vim com.github.ubuntupunk.ulauncher-vim
+git clone https://github.com/no-faff/ulauncher-calculate-anything com.github.no-faff.ulauncher-calculate-anything
+```
+
+(Ordnername muss exakt der jeweiligen `id` aus `extensions.json`
+entsprechen.)
+
+**3. Calc-Patch.** `ulauncher-calc-patch/` im Repo-Root (per
+`.chezmoiignore` von der Anwendung nach `$HOME` ausgenommen, wie
+`README.md` selbst) enthält die gepatchten `CalcMode.py`/`CalcHistory.py`/
+`CalcResultItem.py` (erweiterter Taschenrechner: `sqrt`/`sin`/`log`/...,
+Konstanten `pi`/`e`/..., Rechen-History) plus `install.sh`, das sie nach
+`/usr/lib/python3/dist-packages/ulauncher/search/calc/` kopiert – ein
+System-Paketpfad, den chezmoi grundsätzlich nicht anfasst. Nach
+Ulauncher-Installation (und nach jedem `apt upgrade ulauncher`, das den
+Patch kommentarlos überschreibt) manuell:
+
+```bash
+~/.local/share/chezmoi/ulauncher-calc-patch/install.sh
+```
+
+Braucht `sudo` und eine echte Desktop-Sitzung (nicht headless/SSH ohne
+`$DISPLAY`) für den abschließenden Ulauncher-Neustart.
+
 ## Neovim (LazyVim)
 
 `dot_config/nvim/` versioniert die [LazyVim](https://www.lazyvim.org/)-Config
