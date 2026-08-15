@@ -5,3 +5,10 @@ TODO_syncthing.md
 # Quelldateien für den Ulauncher-Calc-Patch (schreibt nach /usr/lib/python3/dist-packages/...,
 # außerhalb von $HOME) - install.sh manuell ausführen, siehe README.md
 ulauncher-calc-patch
+
+# .uuid wird nicht vom Nerd-Fonts-Archiv geliefert, sondern extern (root-Prozess,
+# vermutlich xdg-desktop-portal/Flatpak beim Bereitstellen des Font-Verzeichnisses)
+# bei jedem Zugriff neu angelegt. Unter "exact = true" (.chezmoiexternal.toml) würde
+# chezmoi sie bei jedem apply löschen wollen und wegen der ständig neuen, unerwarteten
+# Version interaktiv nachfragen - das blockiert nicht-interaktive Läufe.
+.local/share/fonts/NerdFonts/JetBrainsMono/.uuid
