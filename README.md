@@ -107,6 +107,17 @@ MX Linux** zu beachten sind:
 Lohnt sich aktuell nicht vorab zu templaten/bereinigen – erst relevant,
 falls regelmäßig zwischen MX und einer anderen Distro gewechselt wird.
 
+### Thunar: kein Hover-Select
+
+`dot_config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml` setzt bewusst nur
+die eine Property `misc-single-click` auf `false` (statt wie bei
+`xfce4-panel.xml` die komplette Live-Datei zu versionieren – der Rest von
+`thunar.xml` ist Fenstergröße/letzte Ansicht/Sortierung, also Session-
+Zustand, kein bewusstes Setting). Thunar koppelt "Single-Click zum
+Aktivieren" und "beim Hovern automatisch auswählen" an dieselbe Property;
+`false` = Doppelklick-Modus, kein Hover-Select – entspricht dem
+macOS-Finder-Verhalten.
+
 ## Ulauncher (Launcher + Calc-Patch)
 
 `dot_config/ulauncher/{settings.json,extensions.json,shortcuts.json}`
