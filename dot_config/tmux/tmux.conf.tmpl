@@ -15,6 +15,11 @@ set -g mouse on # mit Mausoption: Einfügen mtlr. Maustaste auf einmal nicht meh
 # 3.4 copy support
 set-window-option -g allow-passthrough on
 
+# Neue Panes/Windows im cwd des aktuellen Panes statt im ursprünglichen Startverzeichnis öffnen
+bind '"' split-window -v -c "#{pane_current_path}"
+bind %   split-window -h -c "#{pane_current_path}"
+bind c   new-window -c "#{pane_current_path}"
+
 # Highlight active window
 #set-window-option -g window-status-current bg=red # -> TODO: Verursacht Fehler
 
