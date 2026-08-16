@@ -118,6 +118,19 @@ Aktivieren" und "beim Hovern automatisch auswählen" an dieselbe Property;
 `false` = Doppelklick-Modus, kein Hover-Select – entspricht dem
 macOS-Finder-Verhalten.
 
+### xfce4-terminal: Drop-down-Fensterränder
+
+`dot_config/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml` setzt
+`dropdown-show-borders` auf `true`. Das Drop-down-Fenster (auf MX per
+F4-Shortcut: `xfce4-terminal --drop-down`, Shortcut selbst noch nicht per
+chezmoi versioniert) öffnet standardmäßig **ohne** Fensterdekoration –
+das ist bei xfce4-terminal fest verdrahtet und wird von `--show-borders`
+sowie der allgemeinen Property `misc-borders-default` (für normale
+Fenster) ignoriert. Es gibt aber eine eigene, dropdown-spezifische
+Property dafür (`dropdown-show-borders`, im Preferences-Dialog unter dem
+Reiter "Drop-down" als Checkbox "Fensterränder anzeigen"), die genau das
+manuelle Antoggeln nach jedem Neustart ersetzt.
+
 ## Ulauncher (Launcher + Calc-Patch)
 
 `dot_config/ulauncher/{settings.json,extensions.json,shortcuts.json}`
