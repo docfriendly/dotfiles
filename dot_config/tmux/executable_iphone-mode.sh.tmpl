@@ -1,0 +1,69 @@
+#!/bin/bash
+# Bei jedem Client-Attach aufgerufen (client-attached-Hook in tmux.conf).
+# Erkennt Termius/iPhone per IPHONE_CLIENT-Session-Env-Var (siehe
+# ../../termius-iphone-tmux-env-var-krimi/BERICHT_*.md) und schaltet
+# Statusleiste + Fensternamen-Kürzung entsprechend um.
+
+if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true" ]; then
+  tmux set -g status-position top
+  # Fenster-Tabs über die zwei Zeilen aufgeteilt: oben nur die Nummer geboxt, unten der
+  # Name geboxt (analog zum SESS-Knopf -- unterschiedliche Info pro Zeile statt reiner
+  # Dopplung). Zeile-2-Varianten wieder als eigene User-Optionen, siehe status-format[1]
+  # weiter unten.
+  # Feste Innenbreite 6 für beide Zeilen (deckt den ungünstigsten Fall unten ab: 4 Zeichen
+  # Name + Ellipse + 1 Flag-Zeichen = 6). Nummer oben darin zentriert (p-3 polstert links,
+  # p6 danach rechts auf); unten wird Name+Flag zusammen auf Breite 6 aufgepolstert (p6,
+  # linksbündig) statt Name und Flag getrennt zu polstern -- sonst zählt der Flag nochmal
+  # zusätzlich drauf. So bilden die Ecken pro Fenster einen sauber geschlossenen Kasten.
+  tmux set -g window-status-format "┌#{p6:#{p-3:#{window_index}}}┐"
+  tmux set -g window-status-current-format "┌#{p6:#{p-3:#{window_index}}}┐"
+  tmux set -g @window-status-format-row2 "└#{p6:#{=/4/…:#{s/^claude-//:window_name}}#{?window_flags,#{window_flags}, }}┘"
+  tmux set -g @window-status-current-format-row2 "└#{p6:#{=/4/…:#{s/^claude-//:window_name}}#{?window_flags,#{window_flags}, }}┘"
+  # Session-Name links (status-left) genauso als Zweizeilen-Kasten wie der S-Knopf:
+  # oben der Name, unten die reine Fensteranzahl (ohne "x"-Präfix). Innenbreite wird bei
+  # jedem Attach/Session-Wechsel live aus der TATSÄCHLICHEN Namenslänge berechnet (statt
+  # eines pessimistischen Fix-Werts) -- so klebt "AGENTS"/"SERVER" ohne Auffüll-Leerzeichen
+  # an der rechten Ecke, wird aber bei Bedarf (Name kürzer als die Fensteranzahl-Ziffern)
+  # auf deren Breite aufgeweitet, damit beide Ecken trotzdem übereinanderstehen.
+  # Wird die Session während des Attachs umbenannt oder wächst die Fensteranzahl über
+  # eine Stelle, bleibt die Breite bis zum nächsten Attach/Wechsel stehen (kleine
+  # Ungenauigkeit, aber kein neuer Hook-Trigger dafür vorhanden).
+  _sess_name="$(tmux display-message -p '#{session_name}')"
+  _sess_count="$(tmux display-message -p '#{session_windows}')"
+  _box_w=${#_sess_name}
+  [ "${#_sess_count}" -gt "$_box_w" ] && _box_w=${#_sess_count}
+  _count_leftpad=$(( (_box_w - ${#_sess_count}) / 2 ))
+  _count_innerw=$(( _count_leftpad + ${#_sess_count} ))
+  # Klick/Tap auf den Kasten ruft per MouseDown1StatusLeft-Bindung choose-session auf
+  # (siehe tmux.conf) -- der Kasten ist also selbst der "Session-Knopf".
+  tmux set -g status-left "#[fg=black,bg=yellow,bold]┌#{p${_box_w}:#{session_name}}┐#[default] "
+  tmux set -g @status-left-row2 "#[fg=black,bg=yellow,bold]└#{p${_box_w}:#{p-${_count_innerw}:#{session_windows}}}┘#[default] "
+  unset _sess_name _sess_count _box_w _count_leftpad _count_innerw
+  # S-Knopf rechts (status-right): Pane-Titel (enthält u.a. den Hostnamen "x220"),
+  # Uhrzeit und Datum weg -- dafür ein antippbarer Knopf (Klick/Tap ruft per
+  # MouseDown1StatusRight-Bindung choose-window auf, siehe tmux.conf).
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#[fg=black,bg=yellow,bold]┌W┐#[default]"
+  # Zeile 2 ist der "untere Rand" des Knopfs (gespiegelte Ecken, Pfeil statt S), gehalten
+  # in einer eigenen User-Option statt in status-right, damit beide Zeilen unterschiedlichen
+  # Text zeigen können.
+  tmux set -g @status-right-row2 "#[fg=black,bg=yellow,bold]└▾┘#[default]"
+  # Zweite Statuszeile: 1:1-Kopie von status-format[0] (dupliziert live, statt die riesige
+  # Default-Formatzeichenkette hier hart zu hinterlegen -- bleibt so synchron, falls sich
+  # Zeile 0 mal ändert), aber die status-left-, status-right- und window-status-(current-)-
+  # format-Verweise werden gegen die Zeile-2-Varianten ausgetauscht, damit oben/unten
+  # unterschiedlicher Text erscheint.
+  _fmt0="$(tmux show-options -gv status-format[0])"
+  _fmt1="${_fmt0/:status-left\}/:@status-left-row2\}}"
+  _fmt1="${_fmt1/:status-right\}/:@status-right-row2\}}"
+  _fmt1="${_fmt1/:window-status-current-format\}/:@window-status-current-format-row2\}}"
+  _fmt1="${_fmt1/:window-status-format\}/:@window-status-format-row2\}}"
+  tmux set -g status-format[1] "$_fmt1"
+  unset _fmt0 _fmt1
+  tmux set -g status 2
+else
+  tmux set -g status 1
+  tmux set -g status-position bottom
+  tmux set -g window-status-format "#I:#W#{?window_flags,#{window_flags}, }"
+  tmux set -g window-status-current-format "#I:#W#{?window_flags,#{window_flags}, }"
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}\"#{=21:pane_title}\" %H:%M %d-%b-%y"
+fi

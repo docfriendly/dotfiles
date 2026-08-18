@@ -48,13 +48,17 @@ Das löst automatisch die komplette Kette aus:
    sudo-Passwort. Gibt kein apt/nala-Paket, daher direkter Download;
    Version steht fest im Skript, da NoMachine keine stabile "latest"-URL
    anbietet (siehe Kommentar im Skript zum Aktualisieren)
-8. `run_after_45-symlink-vault-ssh.sh.tmpl` – verlinkt private SSH-Keys,
+8. `run_once_after_42-configure-sshd-iphone-acceptenv.sh.tmpl` – nur unter
+   Linux: ergänzt `AcceptEnv IPHONE_CLIENT*` in `/etc/ssh/sshd_config` und
+   lädt `sshd` neu, siehe [Termius/iPhone: tmux-Statuszeile](#termiusiphone-tmux-statuszeile)
+   unten
+9. `run_after_45-symlink-vault-ssh.sh.tmpl` – verlinkt private SSH-Keys,
    `config` etc. aus dem Syncthing-Vault nach `~/.ssh`, siehe
    [Vault-Scripts, SSH & Custom Pages](#vault-scripts-ssh--custom-pages-syncthing)
    unten
-9. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
-   Scripte aus dem Syncthing-Vault nach `~/.local/bin`, siehe selbiger
-   Abschnitt
+10. `run_after_50-symlink-vault-scripts.sh.tmpl` – verlinkt private
+    Scripte aus dem Syncthing-Vault nach `~/.local/bin`, siehe selbiger
+    Abschnitt
 
 Chezmoi selbst landet dabei in `~/.local/bin/chezmoi` – dieser Pfad ist
 bereits am Ende der `.bashrc` in `PATH` eingetragen.
@@ -82,9 +86,23 @@ existieren sie ohnehin nicht, dort greift das schlicht ins Leere.
 `dot_config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml` sowie die
 Plugin-Configs unter `dot_config/xfce4/panel/*.rc` (`docklike-2.rc`,
 `netload-14.rc`, `xfce4-timer-plugin-21.rc`) versionieren die persönliche
-Taskleisten-Konfiguration. XFCE beobachtet diese Dateien per inotify, ein
-`chezmoi apply` übernimmt Änderungen daher meist sofort, ohne dass die
-Panel neu gestartet werden muss.
+Taskleisten-Konfiguration.
+
+**Wichtig zum Zeitpunkt, wann Änderungen wirklich greifen:** `xfconfd`
+(der Daemon hinter allen `xfce-perchannel-xml`-Dateien, auch `thunar.xml`
+und `xfce4-terminal.xml` weiter unten) hat **keinen** Dateisystem-Watcher
+auf diese Dateien (geprüft im `xfconfd`-/`libxfconf`-Quellcode, Stand
+08/2026 – kein `GFileMonitor`/inotify irgendwo im Daemon). Er liest eine
+Channel-Datei nur **einmal** beim ersten Zugriff nach dem eigenen Start
+und schreibt sie danach nur noch bei eigenen Property-Changes zurück. Ein
+`chezmoi apply` während einer laufenden Session ändert also nur die Datei
+auf der Platte – wirksam wird der neue Stand typischerweise erst nach
+Neustart der jeweiligen App bzw. von `xfconfd` selbst (Logout/Login oder
+`xfce4-panel -r` fürs Panel). Deshalb bei allen drei Dateien: **komplette
+Live-Datei versionieren, nicht nur die eine geänderte Property** – sonst
+würde beim nächsten `xfconfd`-Neustart der Rest (Farben, Font, Fenster-
+Layout, ...) still auf die Defaults zurückfallen, weil er dann schlicht
+nicht mehr in der Datei steht, aus der frisch geladen wird.
 
 Zwei Dinge, die bei einer Neuinstallation auf einer **anderen Distro als
 MX Linux** zu beachten sind:
@@ -109,27 +127,62 @@ falls regelmäßig zwischen MX und einer anderen Distro gewechselt wird.
 
 ### Thunar: kein Hover-Select
 
-`dot_config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml` setzt bewusst nur
-die eine Property `misc-single-click` auf `false` (statt wie bei
-`xfce4-panel.xml` die komplette Live-Datei zu versionieren – der Rest von
-`thunar.xml` ist Fenstergröße/letzte Ansicht/Sortierung, also Session-
-Zustand, kein bewusstes Setting). Thunar koppelt "Single-Click zum
-Aktivieren" und "beim Hovern automatisch auswählen" an dieselbe Property;
-`false` = Doppelklick-Modus, kein Hover-Select – entspricht dem
-macOS-Finder-Verhalten.
+`dot_config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml` versioniert die
+komplette Live-Datei (siehe Hinweis zu `xfconfd` oben). Die eigentlich
+gewollte Änderung ist `misc-single-click` auf `false`: Thunar koppelt
+"Single-Click zum Aktivieren" und "beim Hovern automatisch auswählen" an
+dieselbe Property; `false` = Doppelklick-Modus, kein Hover-Select –
+entspricht dem macOS-Finder-Verhalten. Der Rest der Datei ist Fenster-
+größe/letzte Ansicht/Sortierung (Session-Zustand, unkritisch) sowie zwei
+weitere bewusste Settings (`misc-recursive-permissions`,
+`misc-show-delete-action`), die deshalb bewusst mitversioniert sind statt
+weggelassen.
 
 ### xfce4-terminal: Drop-down-Fensterränder
 
-`dot_config/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml` setzt
-`dropdown-show-borders` auf `true`. Das Drop-down-Fenster (auf MX per
-F4-Shortcut: `xfce4-terminal --drop-down`, Shortcut selbst noch nicht per
-chezmoi versioniert) öffnet standardmäßig **ohne** Fensterdekoration –
-das ist bei xfce4-terminal fest verdrahtet und wird von `--show-borders`
-sowie der allgemeinen Property `misc-borders-default` (für normale
-Fenster) ignoriert. Es gibt aber eine eigene, dropdown-spezifische
-Property dafür (`dropdown-show-borders`, im Preferences-Dialog unter dem
-Reiter "Drop-down" als Checkbox "Fensterränder anzeigen"), die genau das
-manuelle Antoggeln nach jedem Neustart ersetzt.
+`dot_config/xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml`
+versioniert ebenfalls die komplette Live-Datei (Font, Farbpalette,
+Transparenz, ... – hier wäre ein Minimal-Auszug im Gegensatz zu
+`thunar.xml` tatsächlich riskant gewesen, siehe Hinweis oben). Die
+eigentlich gewollte Änderung ist `dropdown-show-borders` auf `true`. Das
+Drop-down-Fenster (auf MX per F4-Shortcut: `xfce4-terminal --drop-down`,
+Shortcut selbst noch nicht per chezmoi versioniert) öffnet standardmäßig
+**ohne** Fensterdekoration – das ist bei xfce4-terminal fest verdrahtet
+und wird von `--show-borders` sowie der allgemeinen Property
+`misc-borders-default` (für normale Fenster) ignoriert. Es gibt aber eine
+eigene, dropdown-spezifische Property dafür (`dropdown-show-borders`, im
+Preferences-Dialog unter dem Reiter "Drop-down" als Checkbox
+"Fensterränder anzeigen"), die genau das manuelle Antoggeln nach jedem
+Neustart ersetzt.
+
+### Termius/iPhone: tmux-Statuszeile
+
+Termius (iPhone) sendet beim Connecten die Env-Var `IPHONE_CLIENT=true`
+(Termius' "Environment Variables"-Feature). tmux übernimmt sie beim
+Client-Attach in die Session-Umgebung und schaltet darüber automatisch
+auf eine zweizeilige, für den schmalen Touch-Screen optimierte
+Statuszeile mit antippbaren Bereichen um (`status-position top`, weil
+Termius' eigene UI sonst die unterste Zeile verdeckt). Drei Teile:
+
+- `dot_config/tmux/tmux.conf.tmpl` – `update-environment`, die beiden
+  `client-attached`/`client-session-changed`-Hooks sowie die Klick-Bindings
+  (`MouseDown1StatusLeft`/`-Right`).
+- `dot_config/tmux/executable_iphone-mode.sh.tmpl` – baut bei jedem
+  Hook-Aufruf die komplette iPhone-Statuszeile neu zusammen (oder die
+  normale, falls `IPHONE_CLIENT` nicht gesetzt ist).
+- `dot_bashrc.tmpl`, Abschnitt `TERMIUS-ENV-FIX` – Termius hängt beim
+  Senden Leerzeichen an Name/Wert an (`IPHONE_CLIENT   =true `), daher
+  hier vor einem etwaigen `tmux attach` trimmen und sauber re-exportieren.
+- `.chezmoiscripts/run_once_after_42-configure-sshd-iphone-acceptenv.sh.tmpl`
+  – ergänzt serverseitig `AcceptEnv IPHONE_CLIENT*` in `/etc/ssh/sshd_config`
+  (Wildcard wegen des Leerzeichen-Paddings; `sshd` lehnt den exakten Namen
+  sonst mit `disallowed name` ab) und lädt `sshd` neu.
+
+Details zu Fehlersuche und tmux-Format-Sprache (Padding-Richtung,
+Truncation-Marker, warum Breiten-Argumente literale Zahlen sein müssen,
+`client-attached` vs. `client-session-changed`, ...) stehen in den
+SECOND_BRAIN-Berichten `termius-iphone-tmux-env-var-krimi/` und
+`tmux-termius-statuszeile-customizing/`, nicht hier im Repo.
 
 ## Ulauncher (Launcher + Calc-Patch)
 

@@ -53,5 +53,22 @@ set -g @continuum-restore 'on'
 # Save scrollback buffer to file (Prefix + S)
 bind S run-shell 'tmux capture-pane -S - && tmux save-buffer ~/tmux-session-$(date +%Y-%m-%d-%H%M%S).txt && tmux display-message "Buffer gespeichert: ~/tmux-session-$(date +%Y-%m-%d).txt"'
 
+# Termius (iPhone 12 mini) meldet sich per SSH-Env-Var IPHONE_CLIENT=true (siehe sshd_config AcceptEnv).
+# Bei jedem Client-Attach in die Session-Umgebung übernehmen und Statusleiste bei Bedarf nach oben legen,
+# weil Termius' eigene UI/Tastatur sonst die unterste Zeile verdeckt.
+set -g update-environment "DISPLAY KRB5CCNAME MSYSTEM SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID SSH_CONNECTION WAYLAND_DISPLAY WINDOWID XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE IPHONE_CLIENT"
+set-hook -g client-attached 'run-shell "{{ .chezmoi.homeDir }}/.config/tmux/iphone-mode.sh"'
+# Auch bei reinem Session-Wechsel (choose-session, ohne Neuverbinden) neu ausführen --
+# sonst bleibt die dynamisch aus dem Session-Namen berechnete Kasten-Breite im
+# Session-Knopf links auf dem Stand der zuvor aktiven Session stehen.
+set-hook -g client-session-changed 'run-shell "{{ .chezmoi.homeDir }}/.config/tmux/iphone-mode.sh"'
+
+# Zwei antippbare Bereiche in der Statusleiste (harmlos auch außerhalb des
+# iPhone-Modus, da dort mit der Maus kaum geklickt wird):
+# - S-Knopf rechts (status-right) -> Fenster-Auswahl (choose-window)
+# - Session-Namen-Kasten links (status-left) -> Session-Auswahl (choose-session)
+bind-key -T root MouseDown1StatusRight choose-window
+bind-key -T root MouseDown1StatusLeft choose-session
+
 # Initialize TMUX plugin manager (keep this line at the very bottom of tmux.conf)
 run '{{ .chezmoi.homeDir }}/.config/tmux/plugins/tpm/tpm'

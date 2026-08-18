@@ -1,0 +1,26 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# SSHD: IPHONE_CLIENT* PER AcceptEnv DURCHLASSEN
+# Termius (iPhone) meldet sich per SSH-Env-Var IPHONE_CLIENT=true, damit
+# tmux die Statuszeile automatisch nach oben legt (siehe
+# ~/.config/tmux/tmux.conf + iphone-mode.sh sowie SECOND_BRAIN-Bericht
+# termius-iphone-tmux-env-var-krimi). Termius hängt beim Senden Leerzeichen
+# an Name/Wert an, daher Wildcard (IPHONE_CLIENT*) statt exaktem Namen -
+# siehe Bericht für die Fehlersuche dahinter. AcceptEnv-Zeilen sind
+# additiv (sshd_config(5)), daher hier bewusst eine eigene Zeile statt die
+# ggf. vorhandene Standard-AcceptEnv-Zeile zu editieren.
+# ══════════════════════════════════════════════════════════════════
+
+SSHD_CONFIG="/etc/ssh/sshd_config"
+
+if sudo sshd -T 2>/dev/null | grep -qi '^acceptenv .*iphone_client'; then
+  echo "==> AcceptEnv IPHONE_CLIENT* in $SSHD_CONFIG bereits aktiv, überspringe."
+else
+  echo "==> Ergänze AcceptEnv IPHONE_CLIENT* in $SSHD_CONFIG..."
+  printf '\n# chezmoi: Termius/iPhone-Erkennung fuer tmux (siehe SECOND_BRAIN termius-iphone-tmux-env-var-krimi)\nAcceptEnv IPHONE_CLIENT*\n' | sudo tee -a "$SSHD_CONFIG" >/dev/null
+  sudo service ssh reload
+fi
+{{ end -}}

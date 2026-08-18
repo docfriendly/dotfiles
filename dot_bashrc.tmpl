@@ -199,3 +199,17 @@ export PATH="$HOME/.local/bin:$PATH"
 # schon aktuell ist, wenn starship [custom.sudo_cache] rendert. Deshalb hier
 # vorne einreihen statt (wie sonst überall) hinten anhängen.
 PROMPT_COMMAND="_track_sudo_use${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
+
+# ══════════════════════════════════════════════════════════════════
+# TERMIUS-ENV-FIX (IPHONE_CLIENT)
+# ══════════════════════════════════════════════════════════════════
+# Termius' "Environment Variables"-Feature schickt den Namen/Wert mit
+# Leerzeichen-Padding (z.B. "IPHONE_CLIENT   =true "), sshd akzeptiert das
+# nur via Wildcard (AcceptEnv IPHONE_CLIENT*). tmux' update-environment
+# braucht aber den exakten Namen ohne Padding, also hier vor tmux-attach
+# trimmen und sauber neu exportieren.
+_iphone_raw=$(env | grep -E '^IPHONE_CLIENT[[:space:]]*=')
+if [ -n "$_iphone_raw" ]; then
+  export IPHONE_CLIENT="$(echo "${_iphone_raw#*=}" | xargs)"
+fi
+unset _iphone_raw
