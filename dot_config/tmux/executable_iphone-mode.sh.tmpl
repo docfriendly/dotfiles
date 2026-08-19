@@ -1,69 +1,146 @@
 #!/bin/bash
-# Bei jedem Client-Attach aufgerufen (client-attached-Hook in tmux.conf).
-# Erkennt Termius/iPhone per IPHONE_CLIENT-Session-Env-Var (siehe
-# ../../termius-iphone-tmux-env-var-krimi/BERICHT_*.md) und schaltet
-# Statusleiste + Fensternamen-Kürzung entsprechend um.
+# Bei jedem Client-Attach/Session-Wechsel aufgerufen (client-attached- und
+# client-session-changed-Hook in tmux.conf). Erkennt Termius/iPhone per
+# IPHONE_CLIENT-Session-Env-Var (siehe ../../termius-iphone-tmux-env-var-krimi/
+# BERICHT_*.md) und stellt die Statuszeile entsprechend um.
+#
+# WICHTIG: Beide Zweige (iPhone/Laptop) setzen JEDE betroffene Option immer
+# explizit neu -- keiner verlässt sich auf einen Vorzustand. Grund: eine
+# frühere Version hatte einen else-Zweig, der z.B. status-left und
+# status-format[1] nie zurücksetzte -- beim Wechsel iPhone->Laptop blieben so
+# Boxen-Reste vom iPhone-Zweig hängen (Symptom: zwei Zeilen, aber
+# status-position bottom -- eine Mischung aus beiden Zweigen).
 
 if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true" ]; then
+  _iphone=true
   tmux set -g status-position top
-  # Fenster-Tabs über die zwei Zeilen aufgeteilt: oben nur die Nummer geboxt, unten der
-  # Name geboxt (analog zum SESS-Knopf -- unterschiedliche Info pro Zeile statt reiner
-  # Dopplung). Zeile-2-Varianten wieder als eigene User-Optionen, siehe status-format[1]
-  # weiter unten.
-  # Feste Innenbreite 6 für beide Zeilen (deckt den ungünstigsten Fall unten ab: 4 Zeichen
-  # Name + Ellipse + 1 Flag-Zeichen = 6). Nummer oben darin zentriert (p-3 polstert links,
-  # p6 danach rechts auf); unten wird Name+Flag zusammen auf Breite 6 aufgepolstert (p6,
-  # linksbündig) statt Name und Flag getrennt zu polstern -- sonst zählt der Flag nochmal
-  # zusätzlich drauf. So bilden die Ecken pro Fenster einen sauber geschlossenen Kasten.
-  tmux set -g window-status-format "┌#{p6:#{p-3:#{window_index}}}┐"
-  tmux set -g window-status-current-format "┌#{p6:#{p-3:#{window_index}}}┐"
-  tmux set -g @window-status-format-row2 "└#{p6:#{=/4/…:#{s/^claude-//:window_name}}#{?window_flags,#{window_flags}, }}┘"
-  tmux set -g @window-status-current-format-row2 "└#{p6:#{=/4/…:#{s/^claude-//:window_name}}#{?window_flags,#{window_flags}, }}┘"
-  # Session-Name links (status-left) genauso als Zweizeilen-Kasten wie der S-Knopf:
-  # oben der Name, unten die reine Fensteranzahl (ohne "x"-Präfix). Innenbreite wird bei
-  # jedem Attach/Session-Wechsel live aus der TATSÄCHLICHEN Namenslänge berechnet (statt
-  # eines pessimistischen Fix-Werts) -- so klebt "AGENTS"/"SERVER" ohne Auffüll-Leerzeichen
-  # an der rechten Ecke, wird aber bei Bedarf (Name kürzer als die Fensteranzahl-Ziffern)
-  # auf deren Breite aufgeweitet, damit beide Ecken trotzdem übereinanderstehen.
-  # Wird die Session während des Attachs umbenannt oder wächst die Fensteranzahl über
-  # eine Stelle, bleibt die Breite bis zum nächsten Attach/Wechsel stehen (kleine
-  # Ungenauigkeit, aber kein neuer Hook-Trigger dafür vorhanden).
-  _sess_name="$(tmux display-message -p '#{session_name}')"
-  _sess_count="$(tmux display-message -p '#{session_windows}')"
-  _box_w=${#_sess_name}
-  [ "${#_sess_count}" -gt "$_box_w" ] && _box_w=${#_sess_count}
-  _count_leftpad=$(( (_box_w - ${#_sess_count}) / 2 ))
-  _count_innerw=$(( _count_leftpad + ${#_sess_count} ))
-  # Klick/Tap auf den Kasten ruft per MouseDown1StatusLeft-Bindung choose-session auf
-  # (siehe tmux.conf) -- der Kasten ist also selbst der "Session-Knopf".
-  tmux set -g status-left "#[fg=black,bg=yellow,bold]┌#{p${_box_w}:#{session_name}}┐#[default] "
-  tmux set -g @status-left-row2 "#[fg=black,bg=yellow,bold]└#{p${_box_w}:#{p-${_count_innerw}:#{session_windows}}}┘#[default] "
-  unset _sess_name _sess_count _box_w _count_leftpad _count_innerw
-  # S-Knopf rechts (status-right): Pane-Titel (enthält u.a. den Hostnamen "x220"),
-  # Uhrzeit und Datum weg -- dafür ein antippbarer Knopf (Klick/Tap ruft per
-  # MouseDown1StatusRight-Bindung choose-window auf, siehe tmux.conf).
-  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#[fg=black,bg=yellow,bold]┌W┐#[default]"
-  # Zeile 2 ist der "untere Rand" des Knopfs (gespiegelte Ecken, Pfeil statt S), gehalten
-  # in einer eigenen User-Option statt in status-right, damit beide Zeilen unterschiedlichen
-  # Text zeigen können.
-  tmux set -g @status-right-row2 "#[fg=black,bg=yellow,bold]└▾┘#[default]"
-  # Zweite Statuszeile: 1:1-Kopie von status-format[0] (dupliziert live, statt die riesige
-  # Default-Formatzeichenkette hier hart zu hinterlegen -- bleibt so synchron, falls sich
-  # Zeile 0 mal ändert), aber die status-left-, status-right- und window-status-(current-)-
-  # format-Verweise werden gegen die Zeile-2-Varianten ausgetauscht, damit oben/unten
-  # unterschiedlicher Text erscheint.
-  _fmt0="$(tmux show-options -gv status-format[0])"
-  _fmt1="${_fmt0/:status-left\}/:@status-left-row2\}}"
-  _fmt1="${_fmt1/:status-right\}/:@status-right-row2\}}"
-  _fmt1="${_fmt1/:window-status-current-format\}/:@window-status-current-format-row2\}}"
-  _fmt1="${_fmt1/:window-status-format\}/:@window-status-format-row2\}}"
-  tmux set -g status-format[1] "$_fmt1"
-  unset _fmt0 _fmt1
-  tmux set -g status 2
+  # iPhone: schmaler Touch-Screen -> feste, kompakte Innenbreite, Name hart
+  # auf 4 Zeichen + Ellipse gekürzt. 7 = 4 Zeichen Name + Ellipse + 2
+  # Flag-Zeichen (nicht nur 1: das aktuelle Fenster kann "*" (aktuell) UND
+  # "Z" (gezoomt) gleichzeitig tragen, "*Z" -- Fund 19.08.2026, beim Zoomen
+  # lief die Box mit vorherigem Wert 6 über. Analog zum +1-Puffer im
+  # Laptop-Zweig unten, nur dort war der Fixwert schon vorher zu klein.
+  _tab_w=7
+  _name_trunc=4
 else
-  tmux set -g status 1
+  _iphone=false
   tmux set -g status-position bottom
-  tmux set -g window-status-format "#I:#W#{?window_flags,#{window_flags}, }"
-  tmux set -g window-status-current-format "#I:#W#{?window_flags,#{window_flags}, }"
-  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}\"#{=21:pane_title}\" %H:%M %d-%b-%y"
+  # Laptop: feste, kompakte Innenbreite statt dynamisch aus dem längsten
+  # offenen Fensternamen berechnet (frühere Version, s. Git-History) --
+  # ein einziger langer Ausreißer (z.B. "kartoffel-olivetin", 18 Zeichen)
+  # zog die Box sonst für ALLE Fenster unnötig breit und STM/Chezmoi &Co.
+  # wirkten dadurch nicht mehr zentriert (Fund 19.08.2026, zweite Runde).
+  # 6 Zeichen Name + Ellipse + 2 Flag-Zeichen ("*Z", s. iPhone-Kommentar
+  # oben) = 9 Innenbreite -- deckt kurze/mittlere Namen (STM, c-tmux,
+  # sh-STM, Chezmoi) exakt oder fast exakt ab, längere werden gekürzt.
+  _tab_w=13
+  _name_trunc=10
 fi
+
+tmux set -g status 2
+
+# Zentrieren geht nur über Verschachtelung #{pN:#{p-M:inhalt}} (erst
+# rechtsbündig auf Breite M polstern, dann linksbündig auf die
+# Gesamtbreite N -- ergibt näherungsweise zentrierten Text, siehe Bericht).
+# Echtes Pixel-genaues Zentrieren PRO Fenster ist nicht möglich (gleicher
+# Grund wie bei der Breite: tmux wertet window-status-format intern pro
+# Fenster aus, Bash kennt die einzelne Inhaltslänge vorher nicht) -- M ist
+# also zwangsläufig ein für ALLE Fenster gemeinsamer Kompromisswert, sowohl
+# innerhalb einer Zeile als auch ZWISCHEN Zahl und Name.
+#
+# Nummer und Name bekommen deshalb bewusst dasselbe M = halbe Innenbreite
+# (nicht: Name-M aus der Durchschnitts-Namenslänge, wie in einer früheren
+# Version). Grund: mit zwei unterschiedlichen M-Werten pro Zeile landet das
+# Zentrum von Zahl und Name bei den meisten Fenstern an verschiedenen
+# Spalten -- z.B. hätte "3" über "T" (Mitte von "STM") stehen sollen, stand
+# aber 2 Spalten daneben, weil das namensspezifische M auf die
+# Durchschnittslänge aller offenen Fenster ausgelegt war, nicht auf die
+# 1-stellige Zahl. Mit gemeinsamem M richten sich KURZE/typische Namen gut
+# an der Zahl aus (Kompromiss bewusst so gewählt: die meisten Fensternamen
+# hier sind kurz); deutlich längere Namen (z.B. "Chezmoi", 7 Zeichen)
+# rutschen dafür ein paar Zeichen nach links von der Zahl weg -- unvermeidbar
+# bei einem einzigen gemeinsamen M für variabel lange Inhalte.
+_center_m=$(( (_tab_w + 1) / 2 ))
+
+# Fenster-Tabs: oben nur die Nummer (zentriert), unten Name (gekürzt) +
+# Flags, linksbündig (Fund 19.08.2026: Zentrierung des Namens verworfen --
+# ab Namenslänge >= center_m rutscht sie ohnehin bündig nach links, s.
+# Bericht). Beide Zeilen auf dieselbe Innenbreite gepolstert, damit die
+# Box-Ecken übereinanderstehen.
+tmux set -g window-status-format "┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐"
+tmux set -g window-status-current-format "┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐"
+
+# Name-Ausdruck in Einzelschritten statt einer verschachtelten Zeile, damit
+# lesbar bleibt, was mit "claude-" passiert: Präfix weg -> auf _name_trunc
+# kürzen (mit Ellipse) -> Flags (*, Z, ...) anhängen, falls vorhanden.
+_name_no_prefix="#{s/^(claude-|PRE-)//:window_name}"
+_name_short="#{=/${_name_trunc}/…:${_name_no_prefix}}"
+_name_with_flags="${_name_short}#{?window_flags,#{window_flags},}"
+tmux set -g @window-status-format-row2 "└#{p${_tab_w}:${_name_with_flags}}┘"
+tmux set -g @window-status-current-format-row2 "└#{p${_tab_w}:${_name_with_flags}}┘"
+unset _tab_w _name_trunc _center_m _name_no_prefix _name_short _name_with_flags
+
+# Session-Name links (status-left) als Zweizeilen-Kasten: oben der Name,
+# unten die Gesamtzahl ALLER tmux-Sessions auf dem Server (nicht die
+# Fensteranzahl der aktuellen Session -- die sieht man eh direkt an den
+# Fenster-Tabs, s. Fund 19.08.2026). Kein Format-Variable dafür vorhanden
+# (#{session_windows} ist per-Session), deshalb per Bash gezählt und als
+# literale Zahl eingesetzt -- aktualisiert sich wie die Box-Breite erst
+# beim nächsten Attach/Session-Wechsel, nicht live bei jeder neuen Session.
+_sess_name="$(tmux display-message -p '#{session_name}')"
+_total_sessions="$(tmux list-sessions | wc -l)"
+_box_w=${#_sess_name}
+[ "${#_total_sessions}" -gt "$_box_w" ] && _box_w=${#_total_sessions}
+# Zentrierung der Zahl komplett in Bash statt über #{pN:...}: dessen
+# Inhalt muss ein bekannter Format-Variablenname oder ein verschachtelter
+# #{...}-Ausdruck sein, ein reines Literal wie unsere gezählte Zahl wird
+# sonst als nicht existierende Variable interpretiert und ergibt leer
+# (getestet 19.08.2026: #{p6:5} und #{p6:hello} liefern beide nur
+# Leerzeichen, #{p6:#{session_name}} funktioniert dagegen).
+_count_leftpad=$(( (_box_w - ${#_total_sessions}) / 2 ))
+_count_rightpad=$(( _box_w - ${#_total_sessions} - _count_leftpad ))
+_count_centered="$(printf '%*s%s%*s' "$_count_leftpad" '' "$_total_sessions" "$_count_rightpad" '')"
+# Klick/Tap auf den Kasten ruft per MouseDown1StatusLeft-Bindung
+# choose-session auf (siehe tmux.conf).
+tmux set -g status-left "#[fg=black,bg=yellow,bold]┌#{p${_box_w}:#{session_name}}┐#[default] "
+tmux set -g @status-left-row2 "#[fg=black,bg=yellow,bold]└${_count_centered}┘#[default] "
+unset _sess_name _total_sessions _box_w _count_leftpad _count_rightpad _count_centered
+
+# Rechts (status-right): iPhone kriegt nur den W-Knopf (kein Platz für mehr,
+# Klick/Tap ruft per MouseDown1StatusRight choose-window auf). Laptop hat
+# genug Breite -> Pane-Titel/Uhrzeit/Datum bleiben zusätzlich zum W-Knopf.
+if $_iphone; then
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#[fg=black,bg=yellow,bold]┌W┐#[default]"
+  # Kein Text vor dem Knopf (window_bigger ist im Normalfall leer) -> Zeile 2
+  # startet ebenfalls bei Spalte 0, keine Polsterung nötig.
+  tmux set -g @status-right-row2 "#[fg=black,bg=yellow,bold]└▾┘#[default]"
+else
+  # Datum+Uhrzeit stehen in Zeile 2, Zeile 1 hat dadurch Platz für einen
+  # längeren Pane-Titel. Titel unbeschnitten/ungepolstert -- nimmt genau so viel Platz ein wie
+  # er braucht, direkt (rechtsbündig) vor dem Knopf. Kein Breitenabgleich
+  # mit Zeile 2 nötig: status-right wird von tmux ohnehin bündig gegen den
+  # rechten Bildschirmrand positioniert (align=right in status-format),
+  # unabhängig von der Textlänge davor -- die Knöpfe "┌W┐"/"└▾┘" landen
+  # dadurch in beiden Zeilen an derselben Spalte, auch wenn Titel- und
+  # Datum/Uhrzeit-Text unterschiedlich lang sind. Einzige Grenze:
+  # status-right-length (s. tmux.conf) -- bei SEHR langen Titeln wird ab
+  # dort weiterhin von rechts (inkl. Knopf!) abgeschnitten.
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{pane_title} #[fg=black,bg=yellow,bold]┌W┐#[default]"
+  tmux set -g @status-right-row2 "%d-%b-%y %H:%M #[fg=black,bg=yellow,bold]└▾┘#[default]"
+fi
+
+unset _iphone
+
+# Zweite Statuszeile: 1:1-Kopie von status-format[0] (dupliziert live statt
+# die riesige Default-Formatzeichenkette hart zu hinterlegen -- bleibt so
+# synchron, falls sich Zeile 0 mal ändert), aber die status-left-,
+# status-right- und window-status-(current-)format-Verweise werden gegen die
+# Zeile-2-Varianten ausgetauscht, damit oben/unten unterschiedlicher Text
+# erscheint.
+_fmt0="$(tmux show-options -gv status-format[0])"
+_fmt1="${_fmt0/:status-left\}/:@status-left-row2\}}"
+_fmt1="${_fmt1/:status-right\}/:@status-right-row2\}}"
+_fmt1="${_fmt1/:window-status-current-format\}/:@window-status-current-format-row2\}}"
+_fmt1="${_fmt1/:window-status-format\}/:@window-status-format-row2\}}"
+tmux set -g status-format[1] "$_fmt1"
+unset _fmt0 _fmt1

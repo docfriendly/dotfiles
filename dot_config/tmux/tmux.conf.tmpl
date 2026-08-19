@@ -28,6 +28,12 @@ set -g status-bg {{ $machine.tmux.statusBg }}
 set -g window-status-style bg=yellow
 set -g window-status-current-style bg=red,fg=white
 
+# tmux' Default (40) reicht am Laptop nicht mehr: seit iphone-mode.sh den
+# Pane-Titel dort auf feste Breite 21 auffüllt, ist der Text vor dem
+# W-Knopf konstant 40 Zeichen lang -- der Knopf selbst (3 weitere Zeichen)
+# wurde dadurch komplett abgeschnitten (Fund 19.08.2026).
+set -g status-right-length 50
+
 # Plugins nach ~/.config/tmux/plugins statt ins alte ~/.tmux ablegen
 set-environment -g TMUX_PLUGIN_MANAGER_PATH '{{ .chezmoi.homeDir }}/.config/tmux/plugins/'
 
@@ -62,6 +68,14 @@ set-hook -g client-attached 'run-shell "{{ .chezmoi.homeDir }}/.config/tmux/ipho
 # sonst bleibt die dynamisch aus dem Session-Namen berechnete Kasten-Breite im
 # Session-Knopf links auf dem Stand der zuvor aktiven Session stehen.
 set-hook -g client-session-changed 'run-shell "{{ .chezmoi.homeDir }}/.config/tmux/iphone-mode.sh"'
+# Auch bei Layout-Aenderungen (u.a. Zoom per Prefix+z) neu ausfuehren, damit die
+# Fenster-Tab-Breite im Laptop-Zweig sofort neu berechnet wird, statt erst beim
+# naechsten Attach/Session-Wechsel -- empirisch verifiziert (19.08.2026, Scratch-
+# Session), dass window-layout-changed zuverlaessig bei -Z feuert. Ersetzt NICHT
+# den statischen +1-Puffer in iphone-mode.sh (Guertel und Hosentraeger: mehrere
+# schnell aufeinanderfolgende Layout-Events beim Ziehen einer Pane-Grenze koennten
+# sonst kurzzeitig eine zu schmale Box zeigen).
+set-hook -g window-layout-changed 'run-shell "{{ .chezmoi.homeDir }}/.config/tmux/iphone-mode.sh"'
 
 # Zwei antippbare Bereiche in der Statusleiste (harmlos auch außerhalb des
 # iPhone-Modus, da dort mit der Maus kaum geklickt wird):
