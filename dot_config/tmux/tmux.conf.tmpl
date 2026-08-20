@@ -43,6 +43,13 @@ set -g @plugin 'tmux-plugins/tmux-sensible'
 set -g @plugin 'tmux-plugins/tmux-yank'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
+set -g @plugin 'nhdaly/tmux-better-mouse-mode'
+
+# tmux-better-mouse-mode: Mausrad-Scrollen weniger ruckelig (Default 3 Zeilen/Tick)
+# und in Vollbild-Programmen (vim, less, man) Scroll-Events als Pfeiltasten/
+# PageUp statt Copy-Mode durchreichen (siehe Termius-Scroll-Recherche, 20.08.2026).
+set -g @scroll-speed-num-lines-per-scroll "1"
+set -g @emulate-scroll-for-no-mouse-alternate-buffer "on"
 
 # Restart processes with resurrect-plugin
 set -g @resurrect-processes '{{ $machine.tmux.resurrectProcesses }}'
