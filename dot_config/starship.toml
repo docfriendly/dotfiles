@@ -15,6 +15,7 @@ read_only = " 󰌾"
 "~/Developer/projects" = "DEV"
 "~/Documents/work" = "WORK"
 "~/.config" = "CFG"
+"~/Sync/vault/SECOND_BRAIN" = "~BRAIN"
 
 [aws]
 symbol = " "
@@ -318,8 +319,23 @@ style = "bold fg:green"
 # Custom module to show tmux session in prompt
 [custom.tmux_session]
 command = "tmux display-message -p '#S' 2>/dev/null"
-when = "test -n $TMUX"
+when = 'test -n "$TMUX"'
 format = "[ $output](bold yellow) "
+shell = ["bash", "--noprofile", "--norc"]
+
+# Zeigt Server-Status, wenn NICHT attached: läuft ein tmux-Server, und wenn
+# ja, wie viele Sessions/verbundene Clients gibt es. Nur relevant außerhalb
+# von tmux (siehe custom.tmux_session für den attached-Fall).
+[custom.tmux_server_info]
+description = "tmux-Server-Status, wenn nicht attached"
+command = '''
+sessions=$(tmux list-sessions 2>/dev/null | wc -l)
+clients=$(tmux list-clients 2>/dev/null | wc -l)
+echo "${sessions}S ${clients}C"
+'''
+when = 'test -z "$TMUX" && tmux list-sessions >/dev/null 2>&1'
+symbol = "tmux"
+format = "[$symbol $output](dimmed yellow) "
 shell = ["bash", "--noprofile", "--norc"]
 
 # Shows "CHEZMOI" while inside a `chezmoi cd` subshell
