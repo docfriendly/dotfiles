@@ -213,3 +213,20 @@ if [ -n "$_iphone_raw" ]; then
   export IPHONE_CLIENT="$(echo "${_iphone_raw#*=}" | xargs)"
 fi
 unset _iphone_raw
+
+# ══════════════════════════════════════════════════════════════════
+# btop: schmales Preset (nur cpu+proc) auf engen Terminals
+# ══════════════════════════════════════════════════════════════════
+# An der tatsaechlichen Breite statt an IPHONE_CLIENT festgemacht: die Env-Var
+# haengt an der tmux-Session (letzter attachter Client gewinnt, siehe
+# termius-iphone-tmux-env-var-krimi), die Breite dagegen gehoert zum Pane und
+# stimmt auch bei schmalen Desktop-Panes oder iPhone im Querformat. 80 Spalten
+# ist btops eigenes Minimum fuer das volle cpu+mem+net+proc-Layout, darunter
+# sonst "Terminal size too small".
+btop() {
+  if [ "$(tput cols)" -lt 80 ]; then
+    command btop -c ~/.config/btop/btop-phone.conf "$@"
+  else
+    command btop "$@"
+  fi
+}
