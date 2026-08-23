@@ -12,3 +12,11 @@ ulauncher-calc-patch
 # chezmoi sie bei jedem apply löschen wollen und wegen der ständig neuen, unerwarteten
 # Version interaktiv nachfragen - das blockiert nicht-interaktive Läufe.
 .local/share/fonts/NerdFonts/JetBrainsMono/.uuid
+
+# tmux-server-Autostart startet tmux headless beim Login, damit
+# tmux-continuum/-resurrect (@continuum-restore) nach einem unsauberen
+# Neustart automatisch greift - siehe SECOND_BRAIN/x220-forensics-unplanned-restart/BERICHT.md.
+# Bewusst nur auf x220, wo die unsauberen Neustarts beobachtet wurden.
+{{- if ne .chezmoi.hostname "x220" }}
+.config/autostart/tmux-server.desktop
+{{- end }}
