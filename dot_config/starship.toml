@@ -316,6 +316,79 @@ shell = ["bash", "--noprofile", "--norc"]
 symbol = "󱕵 "
 style = "bold fg:green"
 
+# Zeigt die Anzahl offener eingehender SSH-TCP-Verbindungen (sport=22, andere
+# verbinden sich zu diesem Host) - nur sichtbar wenn mindestens 1 offen ist.
+# Beruhigt: bei einer normalen Session (z.B. via Termius vom iPhone) sollte
+# hier "1" stehen; mehr ist ein Hinweis auf zusätzliche/unerwartete
+# Verbindungen. Steht bewusst vor der tmux-Anzeige (custom.tmux_session /
+# custom.tmux_server_info).
+[custom.ssh_in]
+description = "Anzahl offener eingehender SSH-Verbindungen"
+command = '''
+ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l
+'''
+when = '''
+n=$(ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
+[ "$n" -ge 1 ]
+'''
+symbol = "↓"
+format = "[$symbol $output]($style) "
+style = "bold fg:yellow"
+shell = ["bash", "--noprofile", "--norc"]
+
+# Zeigt die Anzahl offener ausgehender SSH-TCP-Verbindungen (dport=22, dieser
+# Host verbindet sich woanders hin) - nur sichtbar wenn mindestens 1 offen ist.
+[custom.ssh_out]
+description = "Anzahl offener ausgehender SSH-Verbindungen"
+command = '''
+ss -tn state established '( dport = :22 )' 2>/dev/null | tail -n +2 | wc -l
+'''
+when = '''
+n=$(ss -tn state established '( dport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
+[ "$n" -ge 1 ]
+'''
+symbol = "↑"
+format = "[$symbol $output]($style) "
+style = "bold fg:blue"
+shell = ["bash", "--noprofile", "--norc"]
+
+# Mosh läuft nach dem initialen SSH-Handshake über UDP weiter (kein TCP:22
+# mehr) und würde von custom.ssh_in/custom.ssh_out NICHT erfasst. Zählt
+# stattdessen die laufenden mosh-server-Prozesse (= eingehende Sitzungen,
+# jemand verbindet sich per Mosh zu diesem Host). Halbpfeil ⇣ statt ↓, um
+# optisch von SSH zu unterscheiden - gleiches Farbschema (gelb=ein).
+[custom.mosh_in]
+description = "Anzahl laufender eingehender Mosh-Sitzungen"
+command = '''
+n=$(pgrep -c mosh-server 2>/dev/null)
+echo "${n:-0}"
+'''
+when = '''
+n=$(pgrep -c mosh-server 2>/dev/null)
+[ "${n:-0}" -ge 1 ]
+'''
+symbol = "⇣"
+format = "[$symbol $output]($style) "
+style = "bold fg:yellow"
+shell = ["bash", "--noprofile", "--norc"]
+
+# Gegenstück zu custom.mosh_in: zählt laufende mosh-client-Prozesse (dieser
+# Host hat per Mosh eine ausgehende Sitzung zu einem anderen Host offen).
+[custom.mosh_out]
+description = "Anzahl laufender ausgehender Mosh-Sitzungen"
+command = '''
+n=$(pgrep -c mosh-client 2>/dev/null)
+echo "${n:-0}"
+'''
+when = '''
+n=$(pgrep -c mosh-client 2>/dev/null)
+[ "${n:-0}" -ge 1 ]
+'''
+symbol = "⇡"
+format = "[$symbol $output]($style) "
+style = "bold fg:blue"
+shell = ["bash", "--noprofile", "--norc"]
+
 # Custom module to show tmux session in prompt
 [custom.tmux_session]
 command = "tmux display-message -p '#S' 2>/dev/null"
