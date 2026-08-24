@@ -37,12 +37,35 @@ alias glowp='glow -p'
 #  Datei ohnehin früh beim Start geladen wird)
 # ══════════════════════════════════════════════════════════════════
 
-# findgrep <suchbegriff>: durchsucht rekursiv alle Dateien im aktuellen Verzeichnis
-# nach <suchbegriff> (case-insensitive), zeigt Dateiname:Zeilennummer:Zeileninhalt
-# und hebt den Treffer im Text farbig hervor.
+# findgrep [grep-Optionen] <suchbegriff>: durchsucht rekursiv alle Dateien im
+# aktuellen Verzeichnis (außer .git) nach <suchbegriff> (case-insensitive),
+# überspringt Binärdateien, zeigt Dateiname:Zeilennummer:Zeileninhalt und hebt
+# den Treffer im Text farbig hervor. Weitere grep-Optionen (z.B. -w, -v) können
+# vor dem Suchbegriff übergeben werden, das jeweils letzte Argument gilt immer
+# als Suchmuster.
 # Als Funktion statt Alias, weil $1 mitten im Kommando (vor "{} +") gebraucht wird.
 findgrep() {
-    find . -type f -exec grep -in --color=auto "$1" {} +
+    if [ "$#" -eq 0 ]; then
+        echo "Verwendung: findgrep [grep-Optionen] <Suchbegriff>" >&2
+        return 1
+    fi
+    local pattern="${@: -1}"
+    local opts=("${@:1:$#-1}")
+    find . -type f -not -path '*/.git/*' -exec grep -in --color=auto -I "${opts[@]}" -- "$pattern" {} +
+    echo "════════ Info: Es gibt auch das schnellere 'findrg' ════════" >&2
+}
+
+# findrg [rg-Optionen] <suchbegriff>: wie findgrep, aber mit ripgrep (rg) statt
+# find+grep. Respektiert .gitignore automatisch, überspringt .git und
+# Binärdateien von selbst und ist deutlich schneller. rg parst Optionen und
+# Suchmuster selbst, daher kein manuelles Aufteilen der Argumente nötig wie
+# bei findgrep.
+findrg() {
+    if [ "$#" -eq 0 ]; then
+        echo "Verwendung: findrg [rg-Optionen] <Suchbegriff>" >&2
+        return 1
+    fi
+    rg -i "$@"
 }
 
 # `chezmoi cd` überschreiben: statt einer echten Subshell nur ein
