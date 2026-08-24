@@ -146,26 +146,71 @@ claudegrep() {
     cols=$(tput cols 2>/dev/null </dev/tty)
     [ -n "$cols" ] || cols=80
 
+    # Vorfilter mit grep -P statt sofort auf alle Dateien mit jq loszugehen:
+    # jq muss pro Zeile erst das komplette JSON parsen, bevor $pattern
+    # getestet werden kann -- das dominiert die Laufzeit fast vollständig
+    # (Messung: 4s für ~217MB bei einem häufigen Suchwort, obwohl derselbe
+    # Bestand mit rohem grep in 17ms durchsucht ist -- Faktor ~240). Mit
+    # cleanupPeriodDays jetzt auf 10 Jahre (statt 30 Tage) gesetzt gibt es
+    # kein automatisches Volumenlimit mehr, das jq-only-Laufzeiten klein
+    # hält; bei linearer Skalierung wären das bei den in 2 Jahren erwarteten
+    # ~5GB rund 90s pro Suche. -P (PCRE) statt -E (POSIX ERE), weil jqs
+    # Regex-Dialekt (Oniguruma) PCRE-nahe Konstrukte wie \d, \s, (?:...)
+    # kennt, die POSIX ERE nicht versteht -- -P kommt dem, was $pattern in
+    # jq bewirkt, näher als -E. -Z (NUL-getrennte Ausgabe) + Ablage in einer
+    # Datei statt eines Bash-Arrays, damit die Liste unten per `xargs -0`
+    # ohne eigenes Chunking (bei sehr vielen Dateien sonst Gefahr von
+    # "Argument list too long") an grep/jq weitergereicht werden kann --
+    # dieselbe automatische Aufteilung, die vorher `find -exec {} +` schon
+    # geleistet hat.
+    local filelist
+    filelist=$(mktemp)
+    grep -rlZiP --include='*.jsonl' -- "$pattern" "$dir" > "$filelist" 2>/dev/null
+    local grep_rc=$?
+    if [ "$grep_rc" -eq 1 ]; then
+        # Exit 1 = Muster syntaktisch gültig, aber in keiner Datei
+        # enthalten -- jq würde ebenfalls nichts finden, kann also
+        # komplett übersprungen werden.
+        rm -f "$filelist"
+        return 0
+    elif [ "$grep_rc" -gt 1 ]; then
+        # Exit >1 = echter Fehler (z.B. $pattern ist gültiges
+        # jq/Oniguruma-Regex, aber kein gültiges PCRE) -- Vorfilter
+        # unzuverlässig, also NICHT stillschweigend Treffer verschlucken,
+        # sondern zurückfallen auf die ungefilterte Originalvariante (alle
+        # Dateien, kein Vorfilter -- dann wieder mit der alten Laufzeit,
+        # aber korrekt).
+        find "$dir" -name '*.jsonl' -type f -print0 > "$filelist"
+    fi
+    if [ ! -s "$filelist" ]; then
+        rm -f "$filelist"
+        return 0
+    fi
+
     # Session-Titel vorab einsammeln (sessionId -> Titel): Claude Code
     # schreibt pro Session ai-title (automatisch generiert) und optional
-    # custom-title (manuell überschrieben) als eigene JSONL-Zeilen. grep
-    # filtert diese wenigen Zeilen vor (die Objekte selbst reichen als reiner
-    # Text zum Erkennen, ohne dass grep sie parsen müsste) -- ohne diesen
-    # Vorfilter müsste jq jede Datei komplett durchparsen nur um die paar
-    # Titel-Zeilen zu finden, was bei ~200MB Session-Historie spürbar
-    # langsamer ist. `{(.sessionId): (.customTitle // .aiTitle)}` baut pro
-    # Zeile ein Ein-Schlüssel-Objekt; `jq -s 'add'` merged alle zu einem
-    # Objekt, wobei bei doppeltem sessionId (ai-title zuerst, später manuell
-    # umbenannt zu custom-title) der chronologisch letzte Eintrag gewinnt.
+    # custom-title (manuell überschrieben) als eigene JSONL-Zeilen. Nur noch
+    # über $filelist (die vorgefilterten Kandidaten) statt über das
+    # komplette Archiv -- Titel für Sessions ohne Treffer werden unten
+    # ohnehin nie nachgeschlagen. grep filtert diese wenigen Zeilen vor (die
+    # Objekte selbst reichen als reiner Text zum Erkennen, ohne dass grep
+    # sie parsen müsste) -- ohne diesen Vorfilter müsste jq jede Datei
+    # komplett durchparsen nur um die paar Titel-Zeilen zu finden.
+    # `{(.sessionId): (.customTitle // .aiTitle)}` baut pro Zeile ein
+    # Ein-Schlüssel-Objekt; `jq -s 'add'` merged alle zu einem Objekt, wobei
+    # bei doppeltem sessionId (ai-title zuerst, später manuell umbenannt zu
+    # custom-title) der chronologisch letzte Eintrag gewinnt.
     local titlemap
     titlemap=$(mktemp)
-    find "$dir" -name '*.jsonl' -type f -exec grep -hE '"type": ?"(ai-title|custom-title)"' {} + 2>/dev/null \
+    xargs -0 grep -hE '"type": ?"(ai-title|custom-title)"' < "$filelist" 2>/dev/null \
         | jq -c '{(.sessionId): (.customTitle // .aiTitle)}' \
         | jq -s 'add // {}' > "$titlemap"
 
-    # find: -name '*.jsonl' schränkt vorab auf Session-Dateien ein, Rest wie
-    # bei findgrep oben (-type f, -exec ... {} + = möglichst viele Dateien
-    # in einem jq-Aufruf statt pro Datei neu zu starten).
+    # xargs -0 statt find -exec: die Dateiliste steht schon in $filelist
+    # (vorgefiltert oder im Fallback alle *.jsonl), xargs übernimmt nur noch
+    # das automatische Aufteilen in mehrere jq-Aufrufe, falls die Liste zu
+    # lang für eine einzelne Kommandozeile wird (dieselbe Rolle wie vorher
+    # `find -exec ... {} +`).
     # jq: -r ("raw output") gibt Strings ohne umschließende "..." aus, sonst
     # würde jq jeden String als JSON-Literal mit Anführungszeichen liefern.
     # --arg name wert übergibt eine Bash-Variable als jq-Variable $name (als
@@ -194,7 +239,7 @@ claudegrep() {
     # beginnt -- Treffer derselben Session (= eine JSONL-Datei) liegen
     # dadurch im Eingabestrom immer schon zusammen, ohne dass vorher
     # sortiert werden müsste.
-    find "$dir" -name '*.jsonl' -type f -exec jq -n -r \
+    xargs -0 jq -n -r \
         --arg p "$pattern" \
         --arg all "$all" \
         --argjson cols "$cols" \
@@ -309,8 +354,8 @@ claudegrep() {
             # eine Leerzeile erzeugt.
             | "\($header)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
           )
-    ' {} +
-    rm -f "$titlemap"
+    ' < "$filelist"
+    rm -f "$titlemap" "$filelist"
 }
 
 # `chezmoi cd` überschreiben: statt einer echten Subshell nur ein
