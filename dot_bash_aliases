@@ -49,8 +49,21 @@ findgrep() {
         echo "Verwendung: findgrep [grep-Optionen] <Suchbegriff>" >&2
         return 1
     fi
+    # "${@: -1}" (Leerzeichen vor -1 Pflicht, sonst Verwechslung mit der
+    # ${@:-1}-Default-Wert-Syntax) = letztes Argument = Suchmuster.
+    # "${@:1:$#-1}" = alle Argumente davor (Index 1 bis $#-1) = zusätzliche
+    # grep-Optionen; als Array, damit jede Option beim Aufruf unten ein
+    # eigenes Wort bleibt statt als ein zusammenhängender String durchzugehen.
     local pattern="${@: -1}"
     local opts=("${@:1:$#-1}")
+    # find: -type f = nur reguläre Dateien; -not -path '*/.git/*' schließt
+    # Git-internes aus. -exec ... {} + (statt \;) sammelt möglichst viele
+    # Treffer in einem einzigen grep-Aufruf statt pro Datei neu zu starten.
+    # grep: -i case-insensitive, -n Zeilennummer, --color=auto nur bei
+    # Terminal-Ausgabe färben (nicht bei Pipe/Umleitung), -I (groß)
+    # Binärdateien komplett überspringen statt "Binary file X matches".
+    # -- markiert das Ende der Optionen, damit ein Suchmuster, das zufällig
+    # mit "-" beginnt, nicht als (unbekannte) grep-Option missverstanden wird.
     find . -type f -not -path '*/.git/*' -exec grep -in --color=auto -I "${opts[@]}" -- "$pattern" {} +
     echo "════════ Info: Es gibt auch das schnellere 'findrg' ════════" >&2
 }
@@ -65,7 +78,133 @@ findrg() {
         echo "Verwendung: findrg [rg-Optionen] <Suchbegriff>" >&2
         return 1
     fi
+    # -i case-insensitive wie bei grep. "$@" statt einzelnem $1, weil rg
+    # (anders als findgrep oben) selbst erkennt, was Option, Pfad oder
+    # Suchmuster ist -- kein manuelles Aufteilen der Argumente nötig.
     rg -i "$@"
+}
+
+# claudegrep [--all] <suchbegriff> [Verzeichnis]: durchsucht Claude-Code-
+# Session-Logs (Standard: ~/.claude/projects/**/*.jsonl) nach <suchbegriff>
+# im Text von User-/Assistant-Nachrichten (case-insensitive). Ignoriert
+# thinking-/tool_use-/tool_result-Blöcke, da dort nur Rauschen (Tool-Output,
+# Denkprotokolle) statt lesbarem Text steht -- genau das, was findgrep/
+# findrg auf den rohen JSONL-Dateien mitausgeben würden. Zeigt statt der
+# JSON-Rohzeile pro Treffer Zeitstempel, Rolle sowie den (von Claude Code
+# automatisch generierten oder manuell gesetzten) Session-Titel -- deutlich
+# aussagekräftiger als der reine Projektpfad, der bei Sessions direkt in
+# TMP/ oder SECOND_BRAIN/ oft nur den generischen Oberordner zeigt; der Pfad
+# steht trotzdem gedimmt in Klammern dahinter. Treffer farbig hervorgehoben.
+# Standardmäßig nur ein ~100-Zeichen-Ausschnitt um den ersten Treffer (eine
+# Zeile, Newlines rausgequetscht) statt der kompletten Nachricht -- lange
+# Nachrichten (z.B. Context-Compaction-Zusammenfassungen) würden sonst
+# seitenweise Kontext ausgeben, in dem der Treffer selbst kaum auffindbar
+# ist. Mit --all wird stattdessen die komplette Nachricht gezeigt.
+claudegrep() {
+    # --all kann an beliebiger Position stehen: Schleife trennt es von den
+    # restlichen Argumenten, statt es fix an eine Position zu binden.
+    local all=0
+    local args=()
+    for a in "$@"; do
+        if [ "$a" = "--all" ]; then
+            all=1
+        else
+            args+=("$a")
+        fi
+    done
+    if [ "${#args[@]}" -eq 0 ]; then
+        echo "Verwendung: claudegrep [--all] <Suchbegriff> [Verzeichnis]" >&2
+        return 1
+    fi
+    local pattern="${args[0]}"
+    # "${args[1]:-...}" = zweites Argument, oder Default falls nicht gesetzt.
+    local dir="${args[1]:-$HOME/.claude/projects}"
+    # $'\033[...' = Bash-ANSI-C-Quoting; \033 ist das ESC-Byte (oktal 33 =
+    # dezimal 27), gefolgt vom SGR-Farbcode: 36 cyan, 33 gelb, 35 magenta,
+    # 2 gedimmt, 1;31 fett+rot, 0 = zurücksetzen.
+    local c_ts=$'\033[36m' c_role=$'\033[33m' c_loc=$'\033[35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+
+    # Session-Titel vorab einsammeln (sessionId -> Titel): Claude Code
+    # schreibt pro Session ai-title (automatisch generiert) und optional
+    # custom-title (manuell überschrieben) als eigene JSONL-Zeilen. grep
+    # filtert diese wenigen Zeilen vor (die Objekte selbst reichen als reiner
+    # Text zum Erkennen, ohne dass grep sie parsen müsste) -- ohne diesen
+    # Vorfilter müsste jq jede Datei komplett durchparsen nur um die paar
+    # Titel-Zeilen zu finden, was bei ~200MB Session-Historie spürbar
+    # langsamer ist. `{(.sessionId): (.customTitle // .aiTitle)}` baut pro
+    # Zeile ein Ein-Schlüssel-Objekt; `jq -s 'add'` merged alle zu einem
+    # Objekt, wobei bei doppeltem sessionId (ai-title zuerst, später manuell
+    # umbenannt zu custom-title) der chronologisch letzte Eintrag gewinnt.
+    local titlemap
+    titlemap=$(mktemp)
+    find "$dir" -name '*.jsonl' -type f -exec grep -hE '"type": ?"(ai-title|custom-title)"' {} + 2>/dev/null \
+        | jq -c '{(.sessionId): (.customTitle // .aiTitle)}' \
+        | jq -s 'add // {}' > "$titlemap"
+
+    # find: -name '*.jsonl' schränkt vorab auf Session-Dateien ein, Rest wie
+    # bei findgrep oben (-type f, -exec ... {} + = möglichst viele Dateien
+    # in einem jq-Aufruf statt pro Datei neu zu starten).
+    # jq: -r ("raw output") gibt Strings ohne umschließende "..." aus, sonst
+    # würde jq jeden String als JSON-Literal mit Anführungszeichen liefern.
+    # --arg name wert übergibt eine Bash-Variable als jq-Variable $name (als
+    # String) -- nötig, weil das jq-Programm in '...' steht und daher keine
+    # Bash-Variablen-Expansion darin stattfindet. --slurpfile lädt die oben
+    # gebaute Titel-Map als jq-Variable $tmap (Array mit einem Element, dem
+    # geparsten JSON-Objekt aus der Datei).
+    find "$dir" -name '*.jsonl' -type f -exec jq -r \
+        --arg p "$pattern" \
+        --arg all "$all" \
+        --slurpfile tmap "$titlemap" \
+        --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
+        --arg c_hit "$c_hit" --arg c_off "$c_off" '
+        # select(...): filtert Objekte durch, wie ein grep innerhalb von jq.
+        select(.type == "user" or .type == "assistant") |
+        .message as $m |
+        # .content ist je nach Nachricht ein String oder ein Array von
+        # Blöcken (Text/Denken/Tool-Aufruf/Tool-Ergebnis) -- hier werden nur
+        # die "text"-Blöcke rausgezogen und zusammengefügt, der Rest (reines
+        # Rauschen für die Suche) bleibt außen vor.
+        ($m.content
+         | if type == "string" then .
+           else ([.[] | select(.type == "text") | .text] | join(" "))
+           end) as $text |
+        # test($p; "i"): Regex-Test (nur ja/nein), "i" = case-insensitive.
+        select($text != "" and ($text | test($p; "i"))) |
+        (.timestamp) as $ts |
+        (.message.role) as $role |
+        # // ist der "Alternative"-Operator: rechter Wert, falls .cwd fehlt/
+        # null ist (Fallback). $tmap[0][.sessionId] schlägt die aktuelle
+        # Session im Titel-Objekt nach; ohne Treffer (z.B. noch laufende
+        # Session ohne Titel-Zeile) bleibt $title null und der Pfad allein
+        # wird angezeigt.
+        (.cwd // "?") as $cwd |
+        ($tmap[0][.sessionId] // null) as $title |
+        (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\($cwd))\($c_off)"
+         else "\($c_loc)\($cwd)\($c_off)" end) as $loc |
+        "\($c_ts)\($ts)\($c_off) \($c_role)\($role)\($c_off) \($loc)\n"
+        +
+        (if $all == "1" then
+           # gsub("(?<m>"+$p+")"; ...; "i"): globales Suchen&Ersetzen mit
+           # benannter Capture-Gruppe "m"; im Replacement über \(.m) wieder
+           # eingesetzt, hier nur um den Treffer mit Farbcode zu umschließen.
+           ($text | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i")) + "\n"
+         else
+           # match($p; "i"): wie test, liefert zusätzlich die Fundstelle
+           # (.offset/.length) des ersten Treffers -- daraus wird unten das
+           # ~100-Zeichen-Fenster drumrum berechnet (mit Rand-Clamping auf
+           # 0 bzw. Textende) und per Slicing ($text[$start:$end]) rausgeschnitten.
+           ($text | match($p; "i")) as $mt |
+           ($text | length) as $tlen |
+           (if ($mt.offset - 100) > 0 then ($mt.offset - 100) else 0 end) as $start |
+           (if ($mt.offset + $mt.length + 100) < $tlen then ($mt.offset + $mt.length + 100) else $tlen end) as $end |
+           ($text[$start:$end] | gsub("\n"; " ")) as $window |
+           ($window | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i")) as $hwindow |
+           (if $start > 0 then "…" else "" end) as $pre |
+           (if $end < $tlen then "…" else "" end) as $post |
+           "\($pre)\($hwindow)\($post)\n"
+         end)
+    ' {} +
+    rm -f "$titlemap"
 }
 
 # `chezmoi cd` überschreiben: statt einer echten Subshell nur ein
