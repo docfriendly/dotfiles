@@ -66,6 +66,15 @@ set -g @continuum-restore 'on'
 # Save scrollback buffer to file (Prefix + S)
 bind S run-shell 'tmux capture-pane -S - && tmux save-buffer ~/tmux-session-$(date +%Y-%m-%d-%H%M%S).txt && tmux display-message "Buffer gespeichert: ~/tmux-session-$(date +%Y-%m-%d).txt"'
 
+# Gesamtes tmux-Pane-Scrollback (nicht nur der aktuell sichtbare kitty-
+# Screen) durchsuchbar in einem Popup oeffnen (Prefix + [). Ersetzt tmux'
+# eingebauten copy-mode-Einstieg auf dieser Taste. Kein Nvim-Plugin noetig
+# (Ersatz fuer kitty-scrollback.nvim, dessen tmux-Support in v9.0.0 entfernt
+# wurde) -- nur tmux capture-pane + normales Neovim im Read-only-Modus.
+# Laeuft komplett auf der Maschine, auf der der tmux-Server laeuft, also
+# auch unveraendert innerhalb einer SSH-Session (kein kitty-Remote-Control).
+bind [ display-popup -E -w 90% -h 90% -T "tmux-Scrollback durchsuchen" "tmux capture-pane -pS - -t #{pane_id} | nvim -R -c 'set nolist nonumber signcolumn=no' -"
+
 # Termius (iPhone 12 mini) meldet sich per SSH-Env-Var IPHONE_CLIENT=true (siehe sshd_config AcceptEnv).
 # Bei jedem Client-Attach in die Session-Umgebung übernehmen und Statusleiste bei Bedarf nach oben legen,
 # weil Termius' eigene UI/Tastatur sonst die unterste Zeile verdeckt.
