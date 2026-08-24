@@ -95,11 +95,21 @@ findrg() {
 # aussagekräftiger als der reine Projektpfad, der bei Sessions direkt in
 # TMP/ oder SECOND_BRAIN/ oft nur den generischen Oberordner zeigt; der Pfad
 # steht trotzdem gedimmt in Klammern dahinter. Treffer farbig hervorgehoben.
-# Standardmäßig nur ein ~100-Zeichen-Ausschnitt um den ersten Treffer (eine
-# Zeile, Newlines rausgequetscht) statt der kompletten Nachricht -- lange
+# Nach Session gruppiert: der (fett hervorgehobene) Titel/Pfad-Header inkl.
+# "="-Trennlinie wird nur einmal pro Session gezeigt, weitere Treffer
+# derselben Session folgen eingerückt direkt darunter (siehe Kommentar bei
+# "foreach" unten). Zeitstempel werden von UTC (so speichert Claude Code sie)
+# in Lokalzeit umgerechnet und als [TT.MM.JJ HH:MM] angezeigt, Rolle
+# einbuchstabig als "h" (harry, User-Nachricht) / "c" (claude, Assistant-
+# Nachricht). Standardmäßig wird jeder Treffer auf eine
+# einzige Zeile begrenzt: die Breite des Ausschnitts um den ersten Treffer
+# richtet sich nach der tatsächlichen Terminalbreite (abzüglich des
+# Zeitstempel/Rolle-Präfixes), nicht nach einer festen Zeichenzahl -- lange
 # Nachrichten (z.B. Context-Compaction-Zusammenfassungen) würden sonst
 # seitenweise Kontext ausgeben, in dem der Treffer selbst kaum auffindbar
-# ist. Mit --all wird stattdessen die komplette Nachricht gezeigt.
+# ist, und ein zu breiter fester Ausschnitt würde auf schmalen Terminals
+# umbrechen statt eine Zeile zu bleiben. Mit --all wird stattdessen die
+# komplette Nachricht gezeigt (kann mehrere Zeilen/den Bildschirm füllen).
 claudegrep() {
     # --all kann an beliebiger Position stehen: Schleife trennt es von den
     # restlichen Argumenten, statt es fix an eine Position zu binden.
@@ -120,9 +130,21 @@ claudegrep() {
     # "${args[1]:-...}" = zweites Argument, oder Default falls nicht gesetzt.
     local dir="${args[1]:-$HOME/.claude/projects}"
     # $'\033[...' = Bash-ANSI-C-Quoting; \033 ist das ESC-Byte (oktal 33 =
-    # dezimal 27), gefolgt vom SGR-Farbcode: 36 cyan, 33 gelb, 35 magenta,
-    # 2 gedimmt, 1;31 fett+rot, 0 = zurücksetzen.
-    local c_ts=$'\033[36m' c_role=$'\033[33m' c_loc=$'\033[35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+    # dezimal 27), gefolgt vom SGR-Farbcode: 36 cyan, 33 gelb, 1;35 fett+
+    # magenta, 2 gedimmt, 1;31 fett+rot, 0 = zurücksetzen.
+    local c_ts=$'\033[36m' c_role=$'\033[33m' c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+
+    # Terminalbreite ermitteln (für Ausschnittsbreite und Trennlinie unten).
+    # </dev/tty statt Default-stdin: claudegrep wird oft in eine Pipe (z.B.
+    # "| less") gehängt, dann zeigt stdout selbst keine Terminalbreite mehr,
+    # das echte Terminal bleibt aber über /dev/tty erreichbar. 2>/dev/null
+    # VOR </dev/tty (Reihenfolge zählt!): schlägt das Öffnen von /dev/tty
+    # fehl (z.B. in einem Cronjob ganz ohne Terminal), soll die Fehlermeldung
+    # unterdrückt werden -- das geht nur, wenn stderr schon umgeleitet ist,
+    # BEVOR die fehlschlagende Umleitung an die Reihe kommt.
+    local cols
+    cols=$(tput cols 2>/dev/null </dev/tty)
+    [ -n "$cols" ] || cols=80
 
     # Session-Titel vorab einsammeln (sessionId -> Titel): Claude Code
     # schreibt pro Session ai-title (automatisch generiert) und optional
@@ -151,58 +173,142 @@ claudegrep() {
     # Bash-Variablen-Expansion darin stattfindet. --slurpfile lädt die oben
     # gebaute Titel-Map als jq-Variable $tmap (Array mit einem Element, dem
     # geparsten JSON-Objekt aus der Datei).
-    find "$dir" -name '*.jsonl' -type f -exec jq -r \
+    #
+    # -n (null input) + "foreach inputs as $r": normalerweise verarbeitet jq
+    # automatisch jede JSON-Zeile als eigenen "Durchlauf" durch die ganze
+    # Pipeline (das war die Basis der vorherigen, ungruppierten Version).
+    # Für die Gruppierung wird aber Zustand über mehrere Zeilen hinweg
+    # gebraucht ("welche sessionId hatte der letzte ausgegebene Treffer?"),
+    # und das geht nur mit manueller Iteration über "inputs" statt der
+    # impliziten Pro-Zeile-Verarbeitung. Das Filtern (welche Zeilen zählen
+    # überhaupt als Treffer) läuft dafür vorab in der def "hit" -- so sieht
+    # "foreach" nur noch echte Treffer und muss selbst keine "kein Treffer"-
+    # Fälle mehr unterscheiden. "foreach EXPR as $var (INIT; UPDATE;
+    # EXTRACT)" hält einen Zustand über die gesamte Eingabe hinweg: UPDATE
+    # berechnet pro Treffer den neuen Zustand, EXTRACT liefert daraus die
+    # Ausgabe -- $var bleibt dabei auch in EXTRACT gültig, UPDATE muss also
+    # nur vermerken OB sich die Session geändert hat, nicht das fertige
+    # Ausgabe-Format mitschleppen. Wichtig für die Gruppierung: jq liest bei
+    # mehreren Dateiargumenten (wie hier durch das gebündelte find-exec
+    # oben) jede Datei komplett hintereinander aus, bevor die nächste
+    # beginnt -- Treffer derselben Session (= eine JSONL-Datei) liegen
+    # dadurch im Eingabestrom immer schon zusammen, ohne dass vorher
+    # sortiert werden müsste.
+    find "$dir" -name '*.jsonl' -type f -exec jq -n -r \
         --arg p "$pattern" \
         --arg all "$all" \
+        --argjson cols "$cols" \
         --slurpfile tmap "$titlemap" \
         --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
         --arg c_hit "$c_hit" --arg c_off "$c_off" '
-        # select(...): filtert Objekte durch, wie ein grep innerhalb von jq.
-        select(.type == "user" or .type == "assistant") |
-        .message as $m |
-        # .content ist je nach Nachricht ein String oder ein Array von
-        # Blöcken (Text/Denken/Tool-Aufruf/Tool-Ergebnis) -- hier werden nur
-        # die "text"-Blöcke rausgezogen und zusammengefügt, der Rest (reines
-        # Rauschen für die Suche) bleibt außen vor.
-        ($m.content
-         | if type == "string" then .
-           else ([.[] | select(.type == "text") | .text] | join(" "))
-           end) as $text |
-        # test($p; "i"): Regex-Test (nur ja/nein), "i" = case-insensitive.
-        select($text != "" and ($text | test($p; "i"))) |
-        (.timestamp) as $ts |
-        (.message.role) as $role |
-        # // ist der "Alternative"-Operator: rechter Wert, falls .cwd fehlt/
-        # null ist (Fallback). $tmap[0][.sessionId] schlägt die aktuelle
-        # Session im Titel-Objekt nach; ohne Treffer (z.B. noch laufende
-        # Session ohne Titel-Zeile) bleibt $title null und der Pfad allein
-        # wird angezeigt.
-        (.cwd // "?") as $cwd |
-        ($tmap[0][.sessionId] // null) as $title |
-        (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\($cwd))\($c_off)"
-         else "\($c_loc)\($cwd)\($c_off)" end) as $loc |
-        "\($c_ts)\($ts)\($c_off) \($c_role)\($role)\($c_off) \($loc)\n"
-        +
-        (if $all == "1" then
-           # gsub("(?<m>"+$p+")"; ...; "i"): globales Suchen&Ersetzen mit
-           # benannter Capture-Gruppe "m"; im Replacement über \(.m) wieder
-           # eingesetzt, hier nur um den Treffer mit Farbcode zu umschließen.
-           ($text | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i")) + "\n"
-         else
-           # match($p; "i"): wie test, liefert zusätzlich die Fundstelle
-           # (.offset/.length) des ersten Treffers -- daraus wird unten das
-           # ~100-Zeichen-Fenster drumrum berechnet (mit Rand-Clamping auf
-           # 0 bzw. Textende) und per Slicing ($text[$start:$end]) rausgeschnitten.
-           ($text | match($p; "i")) as $mt |
-           ($text | length) as $tlen |
-           (if ($mt.offset - 100) > 0 then ($mt.offset - 100) else 0 end) as $start |
-           (if ($mt.offset + $mt.length + 100) < $tlen then ($mt.offset + $mt.length + 100) else $tlen end) as $end |
-           ($text[$start:$end] | gsub("\n"; " ")) as $window |
-           ($window | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i")) as $hwindow |
-           (if $start > 0 then "…" else "" end) as $pre |
-           (if $end < $tlen then "…" else "" end) as $post |
-           "\($pre)\($hwindow)\($post)\n"
-         end)
+        # highlight($s): umschließt jeden Treffer von $p in $s mit Farbcode
+        # (case-insensitive). gsub("(?<m>"+$p+")"; ...; "i"): globales
+        # Suchen&Ersetzen mit benannter Capture-Gruppe "m"; im Replacement
+        # über \(.m) wieder eingesetzt. Eigene def, weil dieselbe Ersetzung
+        # unten an zwei Stellen auf unterschiedlichem Text läuft (kompletter
+        # Text bei --all, nur der Fenster-Ausschnitt sonst) -- so bleibt der
+        # Suchen&Ersetzen-Ausdruck nur einmal geschrieben.
+        def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
+
+        def hit:
+          select(.type == "user" or .type == "assistant")
+          # .content ist je nach Nachricht ein String oder ein Array von
+          # Blöcken (Text/Denken/Tool-Aufruf/Tool-Ergebnis) -- hier werden
+          # nur die "text"-Blöcke rausgezogen und zusammengefügt, der Rest
+          # (reines Rauschen für die Suche) bleibt außen vor.
+          | (.message.content
+             | if type == "string" then .
+               else ([.[] | select(.type == "text") | .text] | join(" "))
+               end) as $text
+          # test($p; "i"): Regex-Test (nur ja/nein), "i" = case-insensitive.
+          | select($text != "" and ($text | test($p; "i")))
+          | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text};
+
+        foreach (inputs | hit) as $r
+          ( {prev: null};
+            # "first" merkt sich (aus dem ALTEN .prev, vor dem Überschreiben
+            # in dieser Zeile), ob dies der allererste Treffer überhaupt ist
+            # -- nur dann ist .prev noch null. So lässt sich unten "neue
+            # Gruppe, aber nicht die allererste" erkennen, um dort (und nur
+            # dort) eine Leerzeile einzufügen, ohne dass ganz oben in der
+            # Ausgabe eine überflüssige führende Leerzeile entsteht.
+            {prev: $r.sid, changed: ($r.sid != .prev), first: (.prev == null)};
+            # Titel-/Pfad-Header nur berechnen und ausgeben, wenn die Session
+            # gegenüber dem letzten Treffer gewechselt hat -- sonst reine
+            # Verschwendung, da er sofort verworfen würde. // ist der
+            # "Alternative"-Operator: rechter Wert, falls .cwd fehlt/null ist
+            # (Fallback). $tmap[0][$r.sid] schlägt die aktuelle Session im
+            # Titel-Objekt nach; ohne Treffer (z.B. noch laufende Session
+            # ohne Titel-Zeile) bleibt $title null und der Pfad allein wird
+            # angezeigt.
+            # Trennlinie ("═" * Breite): jq wiederholt einen String bei
+            # Multiplikation mit einer Zahl n-mal. "═" (U+2550, fette
+            # Box-Zeichnung) statt schlichtem "=", passend zum ═-Boxenstil
+            # der restlichen Datei (siehe Abschnitts-Header oben). Fix 60
+            # Zeichen breit statt Terminalbreite -- eine volle Bildschirm-
+            # breite wirkte auf breiten Terminals zu dominant; [$cols, 60]|min
+            # verhindert trotzdem ein Überlaufen auf schmalen Terminals.
+            (if .changed then
+               (if .first then "" else "\n" end) as $lead
+               | ($tmap[0][$r.sid] // null) as $title
+               | $lead + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\($r.cwd))\($c_off)"
+                          else "\($c_loc)\($r.cwd)\($c_off)" end)
+               + "\n" + $c_dim + ("═" * ([$cols, 60] | min)) + $c_off + "\n"
+             else "" end) as $header
+            # $r.ts kommt als ISO8601-UTC ("...T...Z", mit Millisekunden) --
+            # sub(...) entfernt die Millisekunden (fromdateiso8601 erwartet
+            # exakt "%Y-%m-%dT%H:%M:%SZ", an Nachkommastellen scheitert es
+            # sonst), fromdateiso8601 wandelt in Unix-Timestamp (UTC),
+            # localtime wandelt (systemabhängig über die TZ-Umgebung) in
+            # lokale Zeit um -- ohne diesen Schritt stünde UTC-Zeit da, in
+            # meiner Zeitzone (Sommerzeit) zwei Stunden hinter der Wanduhr.
+            | ($r.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime
+               | strftime("[%d.%m.%y %H:%M]")) as $tsplain
+            # "h"/"c" statt "user"/"assistant": h wie harry (Userrolle), c wie
+            # claude (Assistant-Rolle).
+            | (if $r.role == "assistant" then "c" else "h" end) as $roleabbr
+            # $prefixlen = sichtbare Breite von Zeitstempel+Rolle-Präfix
+            # (ohne Farbcodes, die zählen für die Terminal-Spaltenbreite
+            # nicht mit) -- aus dem tatsächlichen Text berechnet statt als
+            # Zahl fest hinzuschreiben, damit sie bei einer künftigen
+            # Formatänderung automatisch stimmt. $avail = Rest der
+            # Terminalbreite, die für den Treffer-Ausschnitt bleibt; min. 10,
+            # damit auf sehr schmalen Terminals nichts Negatives/Winziges
+            # herauskommt.
+            | ("  \($tsplain) \($roleabbr): " | length) as $prefixlen
+            | (if ($cols - $prefixlen) > 10 then ($cols - $prefixlen) else 10 end) as $avail
+            | (if $all == "1" then
+                 highlight($r.text)
+               else
+                 # match($p; "i"): wie test, liefert zusätzlich die
+                 # Fundstelle (.offset/.length) des ersten Treffers -- daraus
+                 # wird unten das Fenster drumrum berechnet (mit
+                 # Rand-Clamping auf 0 bzw. Textende) und per Slicing
+                 # ($r.text[$start:$end]) rausgeschnitten. $half = Platz je
+                 # Seite des Treffers: von $avail zieht -2 Reserve für die
+                 # beiden möglichen "…"-Ellipsen ab, und -$mt.length, weil
+                 # der Treffer selbst auch im Fenster steht und daher zum
+                 # Budget zählt (Fenstergröße gesamt = $half + Treffer +
+                 # $half); ohne diesen letzten Abzug wäre das Fenster immer
+                 # um die Trefferlänge zu breit.
+                 ($r.text | match($p; "i")) as $mt
+                 | ($r.text | length) as $tlen
+                 | ((($avail - 2 - $mt.length) / 2 | floor) as $h
+                    | if $h > 0 then $h else 0 end) as $half
+                 | (if ($mt.offset - $half) > 0 then ($mt.offset - $half) else 0 end) as $start
+                 | (if ($mt.offset + $mt.length + $half) < $tlen then ($mt.offset + $mt.length + $half) else $tlen end) as $end
+                 | ($r.text[$start:$end] | gsub("\n"; " ")) as $window
+                 | highlight($window) as $hwindow
+                 | (if $start > 0 then "…" else "" end) as $pre
+                 | (if $end < $tlen then "…" else "" end) as $post
+                 | "\($pre)\($hwindow)\($post)"
+               end) as $bodytext
+            # Kein abschließendes "\n" hier: jq -r hängt nach jedem Wert, den
+            # foreach/EXTRACT ausgibt, ohnehin automatisch einen Zeilenumbruch
+            # an -- ein zusätzliches "\n" in diesem String hätte pro Treffer
+            # eine Leerzeile erzeugt.
+            | "\($header)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
+          )
     ' {} +
     rm -f "$titlemap"
 }
