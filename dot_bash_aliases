@@ -84,13 +84,13 @@ findrg() {
     rg -i "$@"
 }
 
-# claudegrep [--all] <suchbegriff> [Verzeichnis]: durchsucht Claude-Code-
-# Session-Logs (Standard: ~/.claude/projects/**/*.jsonl) nach <suchbegriff>
-# im Text von User-/Assistant-Nachrichten (case-insensitive). Ignoriert
-# thinking-/tool_use-/tool_result-Blöcke, da dort nur Rauschen (Tool-Output,
-# Denkprotokolle) statt lesbarem Text steht -- genau das, was findgrep/
-# findrg auf den rohen JSONL-Dateien mitausgeben würden. Zeigt statt der
-# JSON-Rohzeile pro Treffer Zeitstempel, Rolle sowie den (von Claude Code
+# claudegrep [--all] [--lines N] <suchbegriff> [Verzeichnis]: durchsucht
+# Claude-Code-Session-Logs (Standard: ~/.claude/projects/**/*.jsonl) nach
+# <suchbegriff> im Text von User-/Assistant-Nachrichten (case-insensitive).
+# Ignoriert thinking-/tool_use-/tool_result-Blöcke, da dort nur Rauschen
+# (Tool-Output, Denkprotokolle) statt lesbarem Text steht -- genau das, was
+# findgrep/findrg auf den rohen JSONL-Dateien mitausgeben würden. Zeigt statt
+# der JSON-Rohzeile pro Treffer Zeitstempel, Rolle sowie den (von Claude Code
 # automatisch generierten oder manuell gesetzten) Session-Titel -- deutlich
 # aussagekräftiger als der reine Projektpfad, der bei Sessions direkt in
 # TMP/ oder SECOND_BRAIN/ oft nur den generischen Oberordner zeigt; der Pfad
@@ -99,33 +99,60 @@ findrg() {
 # "="-Trennlinie wird nur einmal pro Session gezeigt, weitere Treffer
 # derselben Session folgen eingerückt direkt darunter (siehe Kommentar bei
 # "foreach" unten). Zeitstempel werden von UTC (so speichert Claude Code sie)
-# in Lokalzeit umgerechnet und als [TT.MM.JJ HH:MM] angezeigt, Rolle
-# einbuchstabig als "h" (harry, User-Nachricht) / "c" (claude, Assistant-
-# Nachricht). Standardmäßig wird jeder Treffer auf eine
-# einzige Zeile begrenzt: die Breite des Ausschnitts um den ersten Treffer
-# richtet sich nach der tatsächlichen Terminalbreite (abzüglich des
-# Zeitstempel/Rolle-Präfixes), nicht nach einer festen Zeichenzahl -- lange
-# Nachrichten (z.B. Context-Compaction-Zusammenfassungen) würden sonst
-# seitenweise Kontext ausgeben, in dem der Treffer selbst kaum auffindbar
-# ist, und ein zu breiter fester Ausschnitt würde auf schmalen Terminals
-# umbrechen statt eine Zeile zu bleiben. Mit --all wird stattdessen die
-# komplette Nachricht gezeigt (kann mehrere Zeilen/den Bildschirm füllen).
+# in Lokalzeit umgerechnet; das Datum steht als eigene "── TT.MM.JJ ──"-
+# Zwischenzeile nur bei Wechsel (Sessionwechsel oder Tageswechsel innerhalb
+# einer Session), pro Treffer-Zeile nur noch "HH:MM". Rolle einbuchstabig als
+# "h" (harry, User-Nachricht) / "c" (claude, Assistant-Nachricht).
+# Standardmäßig wird jeder Treffer auf eine einzige Zeile begrenzt: die
+# Breite des Ausschnitts um den ersten Treffer richtet sich nach der
+# tatsächlichen Terminalbreite (abzüglich des Zeitstempel/Rolle-Präfixes),
+# nicht nach einer festen Zeichenzahl -- lange Nachrichten (z.B.
+# Context-Compaction-Zusammenfassungen) würden sonst seitenweise Kontext
+# ausgeben, in dem der Treffer selbst kaum auffindbar ist, und ein zu breiter
+# fester Ausschnitt würde auf schmalen Terminals umbrechen statt eine Zeile
+# zu bleiben. --lines N zeigt stattdessen bis zu N Zeilen um den Treffer
+# (an Wortgrenzen umgebrochen, Folgezeilen unter dem Ausschnitt eingerückt)
+# -- praktisch auf schmalen Terminals (z.B. iPhone-SSH-Client), wo eine
+# einzige Zeile kaum Kontext zeigt. Mit --all wird die komplette Nachricht
+# gezeigt (kann mehrere Zeilen/den Bildschirm füllen).
 claudegrep() {
-    # --all kann an beliebiger Position stehen: Schleife trennt es von den
-    # restlichen Argumenten, statt es fix an eine Position zu binden.
+    # --all und --lines können an beliebiger Position stehen -- while+case
+    # statt der alten for-Schleife, weil --lines seinen Wert aus dem
+    # NÄCHSTEN Argument liest (shift 2) und eine einfache for-a-in-Schleife
+    # dafür keinen Zugriff auf "das nächste Element" bietet.
     local all=0
+    local lines_opt=1
     local args=()
-    for a in "$@"; do
-        if [ "$a" = "--all" ]; then
-            all=1
-        else
-            args+=("$a")
-        fi
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --all)
+                all=1
+                shift
+                ;;
+            --lines)
+                lines_opt="$2"
+                shift 2
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
     done
     if [ "${#args[@]}" -eq 0 ]; then
-        echo "Verwendung: claudegrep [--all] <Suchbegriff> [Verzeichnis]" >&2
+        echo "Verwendung: claudegrep [--all] [--lines N] <Suchbegriff> [Verzeichnis]" >&2
         return 1
     fi
+    # Nur echte positive Ganzzahlen zulassen -- eine leere/falsche Eingabe
+    # (z.B. "--lines" ohne Wert am Ende der Argumentliste, oder Buchstaben)
+    # würde sonst als Textbaustein in $lines_opt landen und erst in jq mit
+    # einer kryptischen Fehlermeldung auffallen.
+    case "$lines_opt" in
+        ''|*[!0-9]*|0)
+            echo "Verwendung: claudegrep [--all] [--lines N] <Suchbegriff> [Verzeichnis]  (N muss eine positive Zahl sein)" >&2
+            return 1
+            ;;
+    esac
     local pattern="${args[0]}"
     # "${args[1]:-...}" = zweites Argument, oder Default falls nicht gesetzt.
     local dir="${args[1]:-$HOME/.claude/projects}"
@@ -243,6 +270,7 @@ claudegrep() {
         --arg p "$pattern" \
         --arg all "$all" \
         --argjson cols "$cols" \
+        --argjson lines "$lines_opt" \
         --slurpfile tmap "$titlemap" \
         --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
         --arg c_hit "$c_hit" --arg c_off "$c_off" '
@@ -254,6 +282,26 @@ claudegrep() {
         # Text bei --all, nur der Fenster-Ausschnitt sonst) -- so bleibt der
         # Suchen&Ersetzen-Ausdruck nur einmal geschrieben.
         def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
+
+        # wrap($width): zerlegt einen String in ein Array von Zeilen, die
+        # (an Leerzeichen entlang, klassischer "greedy" Umbruch) jeweils
+        # höchstens $width Zeichen breit sind. split(" ") + map(select(...))
+        # filtert doppelte Leerzeichen raus (sonst leere "Wörter" im Array,
+        # die als führendes Leerzeichen in der nächsten Zeile aufgetaucht
+        # wären). reduce baut das Zeilen-Array Wort für Wort auf: passt das
+        # nächste Wort noch in die letzte Zeile (inkl. einem Trenn-Leerzeichen),
+        # wird es angehängt, sonst beginnt eine neue Zeile. Kein Silbentrennen
+        # -- ein einzelnes Wort, das breiter als $width ist, bleibt als eigene
+        # (dann zu lange) Zeile stehen, statt mitten im Wort zu brechen.
+        def wrap($width):
+          (. | split(" ") | map(select(. != ""))) as $words
+          | reduce $words[] as $w
+              ([""];
+                (if .[-1] == "" then $w else .[-1] + " " + $w end) as $cand
+                | if (.[-1] == "" or ($cand | length) <= $width)
+                  then .[:-1] + [$cand]
+                  else . + [$w]
+                  end);
 
         def hit:
           select(.type == "user" or .type == "assistant")
@@ -270,14 +318,29 @@ claudegrep() {
           | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text};
 
         foreach (inputs | hit) as $r
-          ( {prev: null};
+          ( {prev: null, prevdate: null};
             # "first" merkt sich (aus dem ALTEN .prev, vor dem Überschreiben
             # in dieser Zeile), ob dies der allererste Treffer überhaupt ist
             # -- nur dann ist .prev noch null. So lässt sich unten "neue
             # Gruppe, aber nicht die allererste" erkennen, um dort (und nur
             # dort) eine Leerzeile einzufügen, ohne dass ganz oben in der
             # Ausgabe eine überflüssige führende Leerzeile entsteht.
-            {prev: $r.sid, changed: ($r.sid != .prev), first: (.prev == null)};
+            #
+            # $curdate: lokales Datum dieses Treffers, hier (statt erst in
+            # EXTRACT) berechnet, weil es sowohl zum Vergleich mit .prevdate
+            # als auch als neuer Zustand gebraucht wird -- EXTRACT liest es
+            # unten einfach aus .prevdate zurück, keine doppelte Berechnung.
+            # $sidchanged trägt zu $datechanged bei: bei jedem Sessionwechsel
+            # soll das Datum immer neu angezeigt werden (auch wenn es
+            # zufällig mit dem Datum der letzten Zeile der vorigen Session
+            # übereinstimmt) -- sonst müsste man beim Lesen nach oben scrollen,
+            # um das Datum der neuen Gruppe zu erfahren.
+            ($r.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime
+             | strftime("%d.%m.%y")) as $curdate
+            | ($r.sid != .prev) as $sidchanged
+            | {prev: $r.sid, prevdate: $curdate, changed: $sidchanged,
+               datechanged: ($sidchanged or ($curdate != .prevdate)),
+               first: (.prev == null)};
             # Titel-/Pfad-Header nur berechnen und ausgeben, wenn die Session
             # gegenüber dem letzten Treffer gewechselt hat -- sonst reine
             # Verschwendung, da er sofort verworfen würde. // ist der
@@ -300,6 +363,15 @@ claudegrep() {
                           else "\($c_loc)\($r.cwd)\($c_off)" end)
                + "\n" + $c_dim + ("═" * ([$cols, 60] | min)) + $c_off + "\n"
              else "" end) as $header
+            # Datums-Zwischenzeile: nur ausgeben, wenn sich das Datum
+            # gegenüber dem letzten Treffer geändert hat (.datechanged kommt
+            # oben aus UPDATE, inkl. Sessionwechsel-Fall). .prevdate enthält
+            # in EXTRACT bereits das Datum DIESES Treffers (UPDATE hat es
+            # gerade dort abgelegt) -- keine erneute Berechnung nötig. Eigene,
+            # dünnere "─"-Linie (U+2500) statt der dicken "═"-Trennlinie oben,
+            # damit die Datumszeile optisch klar unter dem Session-Header
+            # steht und nicht mit ihm verwechselt wird.
+            | (if .datechanged then "  \($c_dim)── \(.prevdate) ──\($c_off)\n" else "" end) as $datehdr
             # $r.ts kommt als ISO8601-UTC ("...T...Z", mit Millisekunden) --
             # sub(...) entfernt die Millisekunden (fromdateiso8601 erwartet
             # exakt "%Y-%m-%dT%H:%M:%SZ", an Nachkommastellen scheitert es
@@ -307,8 +379,11 @@ claudegrep() {
             # localtime wandelt (systemabhängig über die TZ-Umgebung) in
             # lokale Zeit um -- ohne diesen Schritt stünde UTC-Zeit da, in
             # meiner Zeitzone (Sommerzeit) zwei Stunden hinter der Wanduhr.
+            # Nur noch die Uhrzeit (das Datum steht jetzt in $datehdr) --
+            # macht das Präfix jeder Treffer-Zeile deutlich kürzer, wichtig
+            # auf schmalen Terminals (z.B. iPhone-SSH-Client).
             | ($r.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime
-               | strftime("[%d.%m.%y %H:%M]")) as $tsplain
+               | strftime("%H:%M")) as $tsplain
             # "h"/"c" statt "user"/"assistant": h wie harry (Userrolle), c wie
             # claude (Assistant-Rolle).
             | (if $r.role == "assistant" then "c" else "h" end) as $roleabbr
@@ -330,29 +405,62 @@ claudegrep() {
                  # wird unten das Fenster drumrum berechnet (mit
                  # Rand-Clamping auf 0 bzw. Textende) und per Slicing
                  # ($r.text[$start:$end]) rausgeschnitten. $half = Platz je
-                 # Seite des Treffers: von $avail zieht -2 Reserve für die
-                 # beiden möglichen "…"-Ellipsen ab, und -$mt.length, weil
-                 # der Treffer selbst auch im Fenster steht und daher zum
-                 # Budget zählt (Fenstergröße gesamt = $half + Treffer +
-                 # $half); ohne diesen letzten Abzug wäre das Fenster immer
-                 # um die Trefferlänge zu breit.
-                 ($r.text | match($p; "i")) as $mt
+                 # Seite des Treffers: von $budget (= $avail, mit --lines
+                 # N vervielfacht) zieht -2 Reserve für die beiden möglichen
+                 # "…"-Ellipsen ab, und -$mt.length, weil der Treffer selbst
+                 # auch im Fenster steht und daher zum Budget zählt
+                 # (Fenstergröße gesamt = $half + Treffer + $half); ohne
+                 # diesen letzten Abzug wäre das Fenster immer um die
+                 # Trefferlänge zu breit.
+                 ($avail * $lines) as $budget
+                 | ($r.text | match($p; "i")) as $mt
                  | ($r.text | length) as $tlen
-                 | ((($avail - 2 - $mt.length) / 2 | floor) as $h
+                 | ((($budget - 2 - $mt.length) / 2 | floor) as $h
                     | if $h > 0 then $h else 0 end) as $half
                  | (if ($mt.offset - $half) > 0 then ($mt.offset - $half) else 0 end) as $start
                  | (if ($mt.offset + $mt.length + $half) < $tlen then ($mt.offset + $mt.length + $half) else $tlen end) as $end
                  | ($r.text[$start:$end] | gsub("\n"; " ")) as $window
-                 | highlight($window) as $hwindow
+                 # $window ist char-genau auf $budget zugeschnitten, aber
+                 # noch eine einzige lange Zeile -- wrap(...) bricht sie an
+                 # Wortgrenzen auf gleich breite Zeilen um. Breite $avail - 1
+                 # statt $avail: pro Zeile ist maximal EIN Zeichen Puffer für
+                 # eine später angehängte "…"-Ellipse nötig (vorne bei $pre,
+                 # hinten bei $post) -- wrap selbst weiß beim Umbrechen noch
+                 # nicht, welche Zeile das treffen wird, daher pauschal 1
+                 # Zeichen auf allen Zeilen reserviert statt nachträglich neu
+                 # zu umbrechen. Bei --lines 1 (Default) ist $budget == $avail,
+                 # wrap liefert dann so gut wie immer genau eine Zeile zurück
+                 # -- Verhalten bleibt damit für den Default-Fall praktisch
+                 # unverändert (nur 1 Zeichen schmaler als vorher).
+                 | ($window | wrap($avail - 1)) as $wraplines
+                 | ($wraplines | length) as $wc
+                 # Mehr umgebrochene Zeilen vorhanden als $lines erlaubt?
+                 # Dann werden die überzähligen abgeschnitten und $post
+                 # (Ellipse am Ende) erzwungen -- unabhängig davon, ob der
+                 # ORIGINALTEXT an der Stelle schon zu Ende war.
+                 | ($wraplines[0:$lines]) as $kept
+                 | ($wc > $lines) as $wraptruncated
+                 # Jede behaltene Zeile einzeln highlighten (nicht erst
+                 # zusammenfügen und dann highlighten) -- gsub würde sonst
+                 # theoretisch über eine Zeilengrenze hinweg matchen und die
+                 # Färbung so verschieben, dass sie nicht mehr zur later
+                 # eingefügten Einrückung passt. Ab Zeile 2 wird mit
+                 # $prefixlen Leerzeichen eingerückt, damit der Text unter
+                 # dem eigentlichen Ausschnitt (nach "HH:MM h: ") weiterläuft
+                 # statt am linken Rand.
+                 | ($kept | to_entries | map(
+                     (if .key == 0 then "" else "\n" + (" " * $prefixlen) end)
+                     + highlight(.value)
+                   ) | join("")) as $hwindow
                  | (if $start > 0 then "…" else "" end) as $pre
-                 | (if $end < $tlen then "…" else "" end) as $post
+                 | (if ($end < $tlen) or $wraptruncated then "…" else "" end) as $post
                  | "\($pre)\($hwindow)\($post)"
                end) as $bodytext
             # Kein abschließendes "\n" hier: jq -r hängt nach jedem Wert, den
             # foreach/EXTRACT ausgibt, ohnehin automatisch einen Zeilenumbruch
             # an -- ein zusätzliches "\n" in diesem String hätte pro Treffer
             # eine Leerzeile erzeugt.
-            | "\($header)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
+            | "\($header)\($datehdr)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
           )
     ' < "$filelist"
     rm -f "$titlemap" "$filelist"
