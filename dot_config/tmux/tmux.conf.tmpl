@@ -73,7 +73,7 @@ bind S run-shell 'tmux capture-pane -S - && tmux save-buffer ~/tmux-session-$(da
 # wurde) -- nur tmux capture-pane + normales Neovim im Read-only-Modus.
 # Laeuft komplett auf der Maschine, auf der der tmux-Server laeuft, also
 # auch unveraendert innerhalb einer SSH-Session (kein kitty-Remote-Control).
-bind [ display-popup -E -w 90% -h 90% -T "tmux-Scrollback durchsuchen" "tmux capture-pane -pS - -t #{pane_id} | nvim -R -c 'set nolist nonumber signcolumn=no' -"
+bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - > \"$F\"; tmux display-popup -E -w 90% -h 90% -T 'tmux-Scrollback durchsuchen' \"nvim -c 'set nolist nonumber signcolumn=no' -c 'term cat $F' -c 'au TermClose * ++once stopinsert'; rm -f $F\""
 
 # Termius (iPhone 12 mini) meldet sich per SSH-Env-Var IPHONE_CLIENT=true (siehe sshd_config AcceptEnv).
 # Bei jedem Client-Attach in die Session-Umgebung übernehmen und Statusleiste bei Bedarf nach oben legen,
