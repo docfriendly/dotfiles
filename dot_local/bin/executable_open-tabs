@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+# Öffnet alle URLs aus einer Markdown-Datei (z. B. TABS.md) in einem neuen
+# Firefox-Fenster — egal ob als [Titel](url)-Link oder als nackte URL notiert.
+
+if [[ $# -ne 1 ]]; then
+    echo "Verwendung: open-tabs <datei.md>" >&2
+    exit 1
+fi
+
+FILE="$1"
+
+if [[ ! -f "$FILE" ]]; then
+    echo "Datei nicht gefunden: $FILE" >&2
+    exit 1
+fi
+
+mapfile -t urls < <(grep -oE 'https?://[^[:space:])>"]+' "$FILE")
+
+if [[ ${#urls[@]} -eq 0 ]]; then
+    echo "Keine URLs in '$FILE' gefunden." >&2
+    exit 1
+fi
+
+firefox --new-window "${urls[0]}"
+sleep 1
+for u in "${urls[@]:1}"; do
+    firefox --new-tab "$u"
+done
+
+echo "${#urls[@]} Tabs aus '$FILE' geöffnet."
