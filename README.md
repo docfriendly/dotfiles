@@ -19,8 +19,16 @@ Danach dieser eine Befehl: installiert chezmoi selbst (Standalone-Binary,
 **keine** Homebrew-Abhängigkeit), klont dieses Repo und wendet es sofort an:
 
 ```bash
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply <github-user>
+sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply docfriendly
 ```
+
+`docfriendly` ist ein öffentlicher **Lese-Mirror** auf GitHub (Push-Mirror,
+automatisch synchronisiert vom primären, privaten Forgejo-Repo unter
+`forgejo.tipi.lan:8195/harry/dotfiles`, nur per VPN erreichbar). Der Mirror
+existiert nur, damit dieser Bootstrap-Einzeiler auch auf einer brandneuen
+Maschine ohne VPN-Zugang funktioniert – täglich gearbeitet (Commits,
+`git push`) wird weiterhin gegen den Forgejo-Remote, niemals direkt gegen
+GitHub.
 
 Das löst automatisch die komplette Kette aus:
 
@@ -64,7 +72,7 @@ Chezmoi selbst landet dabei in `~/.local/bin/chezmoi` – dieser Pfad ist
 bereits am Ende der `.bashrc` in `PATH` eingetragen.
 
 Falls auf der Maschine schon Homebrew existiert, geht's alternativ auch mit
-`brew install chezmoi && chezmoi init --apply <github-user>`.
+`brew install chezmoi && chezmoi init --apply docfriendly`.
 
 ## Config-Speicherorte
 
