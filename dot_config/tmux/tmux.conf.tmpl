@@ -44,12 +44,18 @@ set -g @plugin 'tmux-plugins/tmux-yank'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
 set -g @plugin 'nhdaly/tmux-better-mouse-mode'
+set -g @plugin 'Morantron/tmux-fingers'
 
 # tmux-better-mouse-mode: Mausrad-Scrollen weniger ruckelig (Default 3 Zeilen/Tick)
 # und in Vollbild-Programmen (vim, less, man) Scroll-Events als Pfeiltasten/
 # PageUp statt Copy-Mode durchreichen (siehe Termius-Scroll-Recherche, 20.08.2026).
 set -g @scroll-speed-num-lines-per-scroll "1"
 set -g @emulate-scroll-for-no-mouse-alternate-buffer "on"
+
+# tmux-fingers: Prefix + F zeigt Hints (wie Vimium) auf URLs/Pfaden/Hashes im
+# sichtbaren Pane-Bereich, Buchstabe druecken kopiert den Treffer in die
+# Zwischenablage. Default-Trigger "F" kollidiert hier mit nichts Belegtem.
+set -g @fingers-key F
 
 # Restart processes with resurrect-plugin
 # Maschinen-/kundenspezifische Ziele (IPs, Hostnames) gehoeren NICHT in
