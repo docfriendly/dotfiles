@@ -52,7 +52,19 @@ set -g @scroll-speed-num-lines-per-scroll "1"
 set -g @emulate-scroll-for-no-mouse-alternate-buffer "on"
 
 # Restart processes with resurrect-plugin
-set -g @resurrect-processes '{{ $machine.tmux.resurrectProcesses }}'
+# Maschinen-/kundenspezifische Ziele (IPs, Hostnames) gehoeren NICHT in
+# .chezmoidata.yaml (das geht auf den oeffentlichen GitHub-Mirror!). Dort
+# steht nur ein generischer Default; existiert
+# ~/Sync/vault/tmux/<hostname>/resurrect-processes (Syncthing-Vault, nicht
+# versioniert), hat dessen Inhalt Vorrang - analog zum SSH-/Scripts-Vault-
+# Muster, nur inline statt als Symlink, weil hier nur ein einzelner String
+# gebraucht wird.
+{{- $resurrectProcesses := $machine.tmux.resurrectProcesses }}
+{{- $vaultResurrectFile := joinPath .chezmoi.homeDir "Sync/vault/tmux" .chezmoi.hostname "resurrect-processes" }}
+{{- if stat $vaultResurrectFile }}
+{{-   $resurrectProcesses = output "cat" $vaultResurrectFile | trim }}
+{{- end }}
+set -g @resurrect-processes '{{ $resurrectProcesses }}'
 
 # Auto-Save/-Restore per continuum-plugin (Session-Daten bleiben lokal pro Maschine)
 set -g @continuum-restore 'on'

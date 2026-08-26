@@ -1,0 +1,13 @@
+{{- /*
+Heimnetz-IP der eigenen Forgejo-/Container-Registry gehoert NICHT in dieses
+oeffentlich gespiegelte Repo. Inhalt kommt komplett aus
+~/Sync/vault/containers/<hostname>/registries.conf (Syncthing-Vault, nicht
+versioniert). Existiert die Vault-Datei nicht, rendert dieses Template auf
+leer - chezmoi legt dann bewusst gar keine registries.conf an (kein
+empty_-Praefix im Dateinamen), Podman faellt auf seine Standard-Registries
+zurueck.
+*/}}
+{{- $vaultRegistriesFile := joinPath .chezmoi.homeDir "Sync/vault/containers" .chezmoi.hostname "registries.conf" -}}
+{{- if stat $vaultRegistriesFile -}}
+{{ output "cat" $vaultRegistriesFile }}
+{{- end -}}
