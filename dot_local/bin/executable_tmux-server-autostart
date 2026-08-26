@@ -1,0 +1,50 @@
+#!/bin/bash
+set -uo pipefail
+
+# Wrapper um den direkten "tmux new-session"-Aufruf im XFCE-Autostart-Eintrag
+# (~/.config/autostart/tmux-server.desktop). Grund: am 25.08.2026 (x220)
+# startete xfce4-session um 12:15, der tmux-Server tauchte aber trotz
+# korrekt konfiguriertem, aktiviertem Autostart-Eintrag erst um 23:25 auf --
+# offenbar manuell nachgestartet. Es gab dafuer keinerlei Log (wtmp/btmp
+# existieren auf dieser Maschine nicht, journalctl kennt nur einen uralten
+# Boot), der Autostart-Eintrag ist also einmal stillschweigend ausgefallen,
+# vermutlich ein Boot-Timing-Race (siehe auch die Lid-Race-Befunde in
+# mxlinux-sysvinit-x220-fullupgrade-reboot-stall/). Dieses Skript loggt
+# jeden Versuch mit Zeitstempel und wiederholt bei Fehlschlag bis zu
+# MAX_TRIES mal im Abstand von RETRY_DELAY Sekunden, damit ein kuenftiger
+# Ausfall nachvollziehbar ist UND ein reiner Timing-Race sich von selbst
+# behebt.
+
+TMUX_BIN="/home/linuxbrew/.linuxbrew/bin/tmux"
+LOG="$HOME/.cache/tmux-autostart.log"
+MAX_TRIES=3
+RETRY_DELAY=30
+
+mkdir -p "$(dirname "$LOG")"
+
+log() {
+	printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >>"$LOG"
+}
+
+log "Autostart getriggert (PID $$, TMUX_BIN=$TMUX_BIN)"
+
+for attempt in $(seq 1 "$MAX_TRIES"); do
+	if "$TMUX_BIN" has-session -t main 2>/dev/null; then
+		log "Versuch $attempt: Session 'main' existiert bereits -- nichts zu tun"
+		exit 0
+	fi
+
+	if err=$("$TMUX_BIN" new-session -d -s main 2>&1); then
+		log "Versuch $attempt: erfolgreich gestartet"
+		exit 0
+	fi
+
+	log "Versuch $attempt: fehlgeschlagen -- $err"
+	if [ "$attempt" -lt "$MAX_TRIES" ]; then
+		log "warte ${RETRY_DELAY}s vor naechstem Versuch"
+		sleep "$RETRY_DELAY"
+	fi
+done
+
+log "alle $MAX_TRIES Versuche fehlgeschlagen -- gebe auf"
+exit 1
