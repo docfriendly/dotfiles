@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Baut eine "OVER"-Session, die per fzf ausgewaehlte FENSTER (nicht nur Sessions)
+# aus anderen tmux-Sessions read-only anzeigt.
+#
+# Pane-Genauigkeit ist bewusst NICHT moeglich: der Zoom-Status eines Fensters
+# ist zwischen allen Clients geteilt (auch ueber Session-Groups hinweg) - ein
+# einzelnes Pane aus einem mehrgeteilten Fenster laesst sich also nicht isoliert
+# anzeigen, ohne die Ansicht des eigentlichen Nutzers in der Quelle zu veraendern.
+# Fenster-Ebene dagegen ist ueber Session-Groups (new-session -t <ziel>) sauber
+# unabhaengig waehlbar, ohne die Ziel-Session zu stoeren.
+set -euo pipefail
+
+OVER_SESSION="OVER"
+OVER_WINDOW="over"
+GROUP_PREFIX="OVER_grp"
+
+cleanup() {
+    tmux kill-session -t "$OVER_SESSION" 2>/dev/null || true
+    while read -r old; do
+        tmux kill-session -t "$old" 2>/dev/null || true
+    done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${GROUP_PREFIX}_" || true)
+}
+
+if [ "${1:-}" = "clear" ]; then
+    cleanup
+    exit 0
+fi
+
+# Alte OVER-Session und verwaiste Gruppen-Sessions aus einem frueheren Lauf aufraeumen
+cleanup
+
+mapfile -t lines < <(tmux list-windows -a -F '#{session_name}:#{window_index} ::: #{session_name} / #{window_name}  (#{window_panes} Panes)' 2>/dev/null \
+    | grep -v "^${OVER_SESSION}:" | grep -v "^${GROUP_PREFIX}_")
+
+if [ ${#lines[@]} -eq 0 ]; then
+    echo "Keine Fenster in anderen tmux-Sessions gefunden." >&2
+    exit 1
+fi
+
+selected=$(printf '%s\n' "${lines[@]}" \
+    | fzf -m --delimiter=' ::: ' --with-nth=2 \
+        --prompt="Fenster fuers OVER-Dashboard (Tab=Mehrfachauswahl, Enter=fertig) > ")
+
+if [ -z "$selected" ]; then
+    echo "Keine Auswahl getroffen." >&2
+    exit 0
+fi
+
+mapfile -t chosen <<< "$selected"
+
+tmux new-session -d -s "$OVER_SESSION" -n "$OVER_WINDOW"
+
+first=1
+i=0
+for line in "${chosen[@]}"; do
+    target="${line%% ::: *}"
+    session="${target%%:*}"
+    win_idx="${target#*:}"
+    i=$((i + 1))
+    group_name="${GROUP_PREFIX}_${i}_$(echo "$session" | tr -c 'A-Za-z0-9_' '_')"
+
+    # Eigene, unabhaengige Fensterauswahl fuer diese Session ueber eine Session-Group
+    tmux new-session -d -t "$session" -s "$group_name"
+    tmux select-window -t "${group_name}:${win_idx}"
+    # Status-Zeile ist pro Session unabhaengig (auch innerhalb der Group) - abschalten,
+    # sonst zeichnet der genestete Read-only-Client seine eigene Statuszeile mit
+    tmux set-option -t "$group_name" status off
+
+    if [ "$first" -eq 1 ]; then
+        first=0
+    else
+        tmux split-window -t "$OVER_SESSION:$OVER_WINDOW"
+    fi
+    tmux send-keys -t "$OVER_SESSION:$OVER_WINDOW" "unset TMUX; tmux attach -t $(printf '%q' "$group_name") -r" Enter
+    tmux select-layout -t "$OVER_SESSION:$OVER_WINDOW" tiled
+done
+
+if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$OVER_SESSION"
+else
+    tmux attach -t "$OVER_SESSION"
+fi
