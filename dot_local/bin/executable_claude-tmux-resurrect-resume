@@ -1,0 +1,68 @@
+#!/bin/bash
+set -euo pipefail
+
+# Wird von tmux-resurrect als @resurrect-hook-post-restore-all aufgerufen
+# (auch beim automatischen continuum-restore beim Serverstart). resurrect
+# stellt Pane-Titel unabhaengig davon wieder her, ob der Prozess selbst neu
+# gestartet wird -- "claude" steht bewusst NICHT in @resurrect-processes, ein
+# wiederhergestelltes Claude-Code-Pane landet also als leere Shell mit dem
+# alten Titel "✳ <aiTitle>" (den Claude Code per OSC gesetzt hatte).
+#
+# Claude Code schreibt exakt diesen aiTitle-String zusammen mit der
+# sessionId in jede Transkriptdatei: {"type":"ai-title","aiTitle":"...",
+# "sessionId":"..."}. Darueber laesst sich die passende Session zurueck-
+# finden, ohne dass man wie bisher manuell durch die "claude --resume"-Liste
+# suchen muss. Verifiziert 26.08.2026 (SECOND_BRAIN/-Session ueber genau
+# dieses Problem).
+#
+# Bewusst OHNE automatisches Enter: das Pane bekommt nur den fertigen
+# "claude --resume <id>"-Befehl eingetippt, der User bestaetigt selbst.
+# Ein automatischer, unbeaufsichtigter Start von Claude-Code-Sessions bei
+# jedem (auch ungewollten) tmux-Serverneustart waere sonst ueberraschend.
+
+PROJECTS_DIR="$HOME/.claude/projects"
+MARKER="✳ "
+
+[ -d "$PROJECTS_DIR" ] || exit 0
+
+tmux list-panes -a -F "#{pane_id}|#{pane_title}|#{pane_current_path}|#{pane_current_command}" |
+while IFS='|' read -r pane_id title path cmd; do
+	case "$title" in
+		"$MARKER"*) ;;
+		*) continue ;;
+	esac
+	[ "$cmd" = "claude" ] && continue   # laeuft schon (oder wurde manuell resumed)
+
+	ai_title="${title#"$MARKER"}"
+
+	# aiTitle ist praktisch eindeutig (KI-generiert), cwd dient nur als
+	# Tie-Breaker bei mehreren Treffern -- Unterordner mit eigenem, aber
+	# verschachteltem Claude-Code-Namespace speichern im Transkript teils
+	# noch den alten Wurzelpfad statt des tatsaechlichen Unterordners
+	# (empirisch gefunden 26.08.2026, siehe .../ios-ssh-clients-vergleich).
+	best_session=""
+	best_mtime=0
+	cwd_session=""
+	cwd_mtime=0
+	while IFS= read -r f; do
+		[ -f "$f" ] || continue
+		sid=$(grep -F "\"aiTitle\":\"$ai_title\"" "$f" | grep -m1 -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+		[ -n "$sid" ] || continue
+		mtime=$(stat -c %Y "$f")
+		if [ "$mtime" -gt "$best_mtime" ]; then
+			best_mtime=$mtime
+			best_session="$sid"
+		fi
+		file_cwd=$(grep -m1 -o '"cwd":"[^"]*"' "$f" | cut -d'"' -f4)
+		if [ "$file_cwd" = "$path" ] && [ "$mtime" -gt "$cwd_mtime" ]; then
+			cwd_mtime=$mtime
+			cwd_session="$sid"
+		fi
+	done < <(grep -rlF "\"aiTitle\":\"$ai_title\"" "$PROJECTS_DIR"/*/*.jsonl 2>/dev/null)
+
+	[ -n "$cwd_session" ] && best_session="$cwd_session"
+
+	if [ -n "$best_session" ]; then
+		tmux send-keys -t "$pane_id" "claude --resume $best_session"
+	fi
+done

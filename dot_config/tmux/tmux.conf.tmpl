@@ -57,6 +57,12 @@ set -g @resurrect-processes '{{ $machine.tmux.resurrectProcesses }}'
 # Auto-Save/-Restore per continuum-plugin (Session-Daten bleiben lokal pro Maschine)
 set -g @continuum-restore 'on'
 
+# Nach jedem Restore (auch dem automatischen per continuum): fuer Panes mit
+# noch sichtbarem altem Claude-Code-Fenstertitel automatisch den passenden
+# "claude --resume <id>"-Befehl eintippen, statt manuell durch die Resume-
+# Liste suchen zu muessen. Siehe Skript-Kommentar fuer Details/Verifikation.
+set -g @resurrect-hook-post-restore-all '{{ .chezmoi.homeDir }}/.local/bin/claude-tmux-resurrect-resume'
+
 # Other examples:
 # set -g @plugin 'github_username/plugin_name'
 # set -g @plugin 'github_username/plugin_name#branch'
