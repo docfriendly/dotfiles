@@ -251,20 +251,32 @@ symbol = " "
 # harry normal/gewollt, würde als Dauerzustand die eigentlichen Ausreißer nur
 # übertönen. Wird von `forensic-mode` gesetzt; unbedingt mit
 # `forensic-mode off <gruppe>` wieder entfernen.
+#
+# Bewusst NICHT `id -nG`/`groups`: die Zusatzgruppen eines Prozesses werden
+# einmalig beim Login gesetzt (initgroups()) und nie aus /etc/group neu
+# eingelesen. In einer bereits laufenden Shell - v.a. in einem seit längerem
+# laufenden tmux-Server, dessen Panes alle vom selben alten Server-Prozess
+# geforkt werden - bleibt `id -nG` daher beliebig lange auf dem Stand von vor
+# dem letzten Login stehen, selbst wenn `forensic-mode` die Gruppe längst
+# geändert hat (siehe BERICHT/Chat vom 26.08.2026). `getent group $g` liest
+# stattdessen live aus /etc/group (bzw. NSS/LDAP/sssd falls konfiguriert) und
+# reagiert deshalb sofort auf jede Änderung, auch in alten tmux-Sessions -
+# genau das will dieses Modul: so wenig Zeit wie möglich unbemerkt in einer
+# prekären Gruppe verbringen. Deckt nur sekundäre (Zusatz-)Gruppenmitglied-
+# schaft ab; dass adm/disk/docker mal die Primärgruppe eines Users sind, ist
+# praktisch nie der Fall und wird hier bewusst nicht extra geprüft.
 [custom.privgroups]
-description = "Warnung vor privilegierten Gruppenmitgliedschaften"
+description = "Warnung vor privilegierten Gruppenmitgliedschaften (live aus /etc/group via getent, nicht aus den ggf. veralteten Prozess-Credentials)"
 command = '''
-groups=" $(id -nG) "
 out=""
 for g in adm disk docker; do
-  case "$groups" in *" $g "*) out="$out $g" ;; esac
+  case ",$(getent group "$g" | cut -d: -f4)," in *",harry,"*) out="$out $g" ;; esac
 done
 echo "${out# }"
 '''
 when = '''
-groups=" $(id -nG) "
 for g in adm disk docker; do
-  case "$groups" in *" $g "*) exit 0 ;; esac
+  case ",$(getent group "$g" | cut -d: -f4)," in *",harry,"*) exit 0 ;; esac
 done
 exit 1
 '''
