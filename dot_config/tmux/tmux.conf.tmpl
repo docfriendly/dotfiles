@@ -45,6 +45,7 @@ set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
 set -g @plugin 'nhdaly/tmux-better-mouse-mode'
 set -g @plugin 'Morantron/tmux-fingers'
+set -g @plugin 'Morantron/tmux-open'
 
 # tmux-better-mouse-mode: Mausrad-Scrollen weniger ruckelig (Default 3 Zeilen/Tick)
 # und in Vollbild-Programmen (vim, less, man) Scroll-Events als Pfeiltasten/
@@ -56,6 +57,11 @@ set -g @emulate-scroll-for-no-mouse-alternate-buffer "on"
 # sichtbaren Pane-Bereich, Buchstabe druecken kopiert den Treffer in die
 # Zwischenablage. Default-Trigger "F" kollidiert hier mit nichts Belegtem.
 set -g @fingers-key F
+
+# tmux-open: ergaenzt copy-mode-vi um "o" (im Standardbrowser oeffnen) und
+# "C-o" (mit $EDITOR oeffnen) fuer die aktuelle Selektion -- greift auch auf
+# per tmux-fingers ausgewaehlte Hints. Keine eigene Prefix-Bindung noetig,
+# beide Tasten sind im copy-mode-vi-Table frei.
 
 # Restart processes with resurrect-plugin
 # Maschinen-/kundenspezifische Ziele (IPs, Hostnames) gehoeren NICHT in
