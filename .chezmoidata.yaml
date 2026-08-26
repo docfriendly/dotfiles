@@ -2,8 +2,14 @@ machines:
   x220:
     tmux:
       statusBg: "colour214 #dark orange"
-      resurrectProcesses: 'btop "syncthing --no-browser" "journalctl -f" "gping -n 0.9 REDACTED-HOST REDACTED-IP REDACTED-IP REDACTED-IP"'
+      # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
+      # Ziele stehen NICHT hier, sondern in ~/Sync/vault/tmux/x220/
+      # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
+      resurrectProcesses: 'btop "syncthing --no-browser" "journalctl -f" "gping -n 0.9 1.1.1.1 google.de"'
   x230:
     tmux:
       statusBg: "silver"
-      resurrectProcesses: 'nvim btop "gping -n 0.8 REDACTED-HOST REDACTED-IP REDACTED-IP REDACTED-IP" "syncthing --no-browser" "mtr google.de" "./check_connection.sh"'
+      # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
+      # Ziele stehen NICHT hier, sondern in ~/Sync/vault/tmux/x230/
+      # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
+      resurrectProcesses: 'nvim btop "gping -n 0.8 1.1.1.1 google.de" "syncthing --no-browser" "mtr google.de" "./check_connection.sh"'
