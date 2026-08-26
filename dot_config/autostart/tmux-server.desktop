@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=tmux
-Comment=Startet den tmux-Server beim Login headless, damit tmux-continuum/-resurrect (@continuum-restore) automatisch greifen. Siehe SECOND_BRAIN/x220-forensics-unplanned-restart/BERICHT.md.
-Exec=/home/linuxbrew/.linuxbrew/bin/tmux new-session -d -s main
+Comment=Startet den tmux-Server beim Login headless, damit tmux-continuum/-resurrect (@continuum-restore) automatisch greifen. Siehe SECOND_BRAIN/x220-forensics-unplanned-restart/BERICHT.md. Laeuft ueber einen Wrapper mit Logging (~/.cache/tmux-autostart.log) und 3 Retries im 30s-Abstand, nachdem der Autostart auf dem x220 am 25.08.2026 einmal stillschweigend ausgefallen war.
+Exec=/home/harry/.local/bin/tmux-server-autostart
 Terminal=false
 X-GNOME-Autostart-enabled=true
