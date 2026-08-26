@@ -73,7 +73,13 @@ bind S run-shell 'tmux capture-pane -S - && tmux save-buffer ~/tmux-session-$(da
 # wurde) -- nur tmux capture-pane + normales Neovim im Read-only-Modus.
 # Laeuft komplett auf der Maschine, auf der der tmux-Server laeuft, also
 # auch unveraendert innerhalb einer SSH-Session (kein kitty-Remote-Control).
-bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - > \"$F\"; tmux display-popup -E -w 90% -h 90% -T 'tmux-Scrollback durchsuchen' \"nvim -c 'set nolist nonumber signcolumn=no' -c 'term cat $F' -c 'au TermClose * ++once stopinsert'; rm -f $F\""
+# WICHTIG: $F muss als \$F escaped werden -- tmux' Config-Parser interpretiert
+# unescaptes $NAME in "..."-Strings selbst als (hier nicht existierende)
+# Server-Umgebungsvariable und ersetzt es beim Laden/source-file durch "",
+# lange bevor die Shell das Skript sieht. Ohne Escaping schreibt capture-pane
+# dann in eine leere Datei und "term cat" laeuft ohne Argument -- ein
+# leeres, wartendes nvim-Fenster (empirisch verifiziert, 26.08.2026).
+bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - -t #{pane_id} > \"\$F\"; tmux display-popup -E -w 90% -h 90% -T 'tmux-Scrollback durchsuchen' \"nvim -c 'set nolist nonumber signcolumn=no' -c 'term cat \$F' -c 'au TermClose * ++once stopinsert'; rm -f \$F\""
 
 # Termius (iPhone 12 mini) meldet sich per SSH-Env-Var IPHONE_CLIENT=true (siehe sshd_config AcceptEnv).
 # Bei jedem Client-Attach in die Session-Umgebung übernehmen und Statusleiste bei Bedarf nach oben legen,
