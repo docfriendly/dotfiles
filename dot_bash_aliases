@@ -198,7 +198,7 @@ fd() {
         local count=0
         [[ -n "$out" ]] && count=$(grep -c '' <<<"$out")
         if (( count <= 5 )); then
-            _hinweis "$count Treffer — versteckte Dateien: -H, alles inkl. .git: -u"
+            _hinweis "versteckte Dateien: -H, alles inkl. .git: -u"
         fi
     fi
 
