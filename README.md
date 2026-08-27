@@ -280,6 +280,7 @@ vier Ablageorte im Repo, je nach Anwendungsfall:
 | **+ Copy nach `/usr/local/bin`** | zusätzlich `run_onchange_after_*` mit `install -m 755` | Wie oben, aber Skript muss auch per `sudo <name>` direkt aufrufbar sein |
 | **Shell-Funktion** | `dot_bash_aliases` (oder `dot_bashrc.tmpl`) | Muss die aktuelle Shell verändern (`cd`, `export`, History lesen) oder ein bestehendes Kommando wrappen |
 | **Vault-Symlink** | `~/Sync/vault/script/<hostname\|common>/`, verlinkt von `run_after_50-symlink-vault-scripts.sh.tmpl` | Host-spezifisch/privat, soll nicht ins (ggf. später öffentliche) Repo |
+| **+ sysvinit-Autostart** | zusätzlich `run_onchange_after_*` installiert ein LSB-Init-Skript nach `/etc/init.d` + `update-rc.d` | Wie Vault-Symlink, aber muss zusätzlich beim Boot als root laufen (Host mit `machines.<host>.sysvinit: true`) |
 
 **Warum ein Copy statt Symlink nach `/usr/local/bin`?** `sudo` nutzt einen
 gehärteten `secure_path` ohne `~/.local/bin` (siehe `/etc/sudoers`) –
@@ -290,17 +291,30 @@ root:root-Kopie ist sauberer. `run_onchange` (statt `run_once` oder einem
 plain `run_after`) triggert nur neu, wenn sich der Skriptinhalt tatsächlich
 ändert (Hash-Kommentar im Script, siehe
 `run_onchange_after_46-install-atql-system.sh.tmpl`, analog zu
-`run_onchange_after_40-refresh-font-cache.sh.tmpl`). Aktuell einziger
-Nutzer: `atql` (`dot_local/bin/executable_atql`) – `forensic-mode` braucht
-das nicht, da es nie selbst mit vorangestelltem `sudo` aufgerufen wird,
-sondern intern gezielt `sudo usermod`/`gpasswd` nutzt (liegen schon in
+`run_onchange_after_40-refresh-font-cache.sh.tmpl`). Einziger Nutzer für
+`/usr/local/bin`: `atql` (`dot_local/bin/executable_atql`) – `forensic-mode`
+braucht das nicht, da es nie selbst mit vorangestelltem `sudo` aufgerufen
+wird, sondern intern gezielt `sudo usermod`/`gpasswd` nutzt (liegen schon in
 `secure_path`).
+
+Der sysvinit-Autostart (`run_onchange_after_51-install-wlan-monitor-init.sh.tmpl`)
+nutzt denselben `run_onchange`-Mechanismus für ein anderes Ziel: das
+komplette LSB-Init-Skript steckt hier direkt im Template (statt in einer
+separaten Datei + Hash-Kommentar wie bei atql), chezmoi erkennt Änderungen
+also automatisch am gerenderten Skriptinhalt. Läuft nur auf Maschinen mit
+`machines.<host>.sysvinit: true` in `.chezmoidata.yaml` (aktuell x220) und
+erst NACH `run_after_50-symlink-vault-scripts.sh.tmpl` (Nummerierung 51),
+weil `DAEMON`/`WORKDIR` auf den dortigen Vault-Symlink
+(`~/.local/bin/check_connection.sh`) zeigen. Log/State schreibt
+`check_connection.sh` bewusst nach `~/.cache/wlan-monitor/` und nicht
+skriptpfad-relativ – sonst würde durch den Vault-Symlink ein `log/`-Ordner
+zwischen die Binaries in `~/.local/bin` rutschen.
 
 Beispiele aus dem Repo: `atql`/`forensic-mode`/`tmux-save-buffer`
 (Repo-Script), die `cd`-Wrapper `chezmoi`/`tealdeer`/`nvim` sowie
 `findgrep` und `_track_sudo_use` (Shell-Funktion, alle in
 `dot_bash_aliases`), `check_connection.sh` (Vault-Symlink, x230, siehe
-nächster Abschnitt).
+nächster Abschnitt; x220 zusätzlich mit sysvinit-Autostart).
 
 ## Vault-Scripts, SSH & Custom Pages (Syncthing)
 

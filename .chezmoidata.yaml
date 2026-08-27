@@ -1,5 +1,6 @@
 machines:
   x220:
+    sysvinit: true # bootet mit sysvinit statt systemd, siehe run_onchange_after_51-install-wlan-monitor-init.sh.tmpl
     tmux:
       statusBg: "colour214 #dark orange"
       # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
