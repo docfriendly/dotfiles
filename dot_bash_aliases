@@ -32,6 +32,85 @@ alias sudo='sudo '
 alias glowp='glow -p'
 
 # ══════════════════════════════════════════════════════════════════
+# HINWEISE (einheitliche "Info:"-Ausgabe für Funktionen wie findgrep, fd, ...)
+# ══════════════════════════════════════════════════════════════════
+
+# _hinweis_onecol <text>: <text> als einzeilige "═══ Info: ... ═══" Badge auf
+# stderr, mit ═ symmetrisch bis maxwidth aufgefüllt (statt fixer 8er-Ränder).
+# Kein Umbruch -- nur für kurze Texte gedacht, wird von _hinweis automatisch
+# gewählt.
+_hinweis_onecol() {
+    local text="$1" maxwidth=60
+    local c_dim='' c_cyan='' c_off=''
+    [[ -t 2 ]] && { c_dim=$'\033[2m'; c_cyan=$'\033[36m'; c_off=$'\033[0m'; }
+
+    # Feste Bestandteile ohne Rand: " Info: " + Text + " " (je ein
+    # Leerzeichen um das Label und vor dem rechten Rand). Rest wird
+    # symmetrisch mit ═ aufgefüllt, überzähliges Zeichen bei Ungerade an
+    # den rechten Rand.
+    local label="Info:"
+    local fixed_len=$(( 1 + ${#label} + 1 + ${#text} + 1 ))
+    local border_total=$(( maxwidth - fixed_len ))
+    (( border_total < 2 )) && border_total=2
+    local left=$(( border_total / 2 ))
+    local right=$(( border_total - left ))
+    local lborder rborder
+    lborder=$(printf '═%.0s' $(seq 1 "$left"))
+    rborder=$(printf '═%.0s' $(seq 1 "$right"))
+
+    printf '%s%s %sInfo:%s%s %s %s%s\n' \
+        "$c_dim" "$lborder" "$c_off$c_cyan" "$c_off" "$c_dim" "$text" "$rborder" "$c_off" >&2
+}
+
+# _hinweis_multicol <text>: <text> als Block auf stderr -- Kopfzeile trägt das
+# "Info:"-Label direkt im Rand ("═ Info: ═══..."), Text darunter an
+# Wortgrenzen auf maximal 60 Zeichen/Zeile umgebrochen (fold -s), Fußzeile
+# reiner ═-Rand. Für Texte, die einzeilig (_hinweis_onecol) zu breit würden.
+_hinweis_multicol() {
+    local text="$1" maxwidth=60
+    local c_dim='' c_cyan='' c_off=''
+    [[ -t 2 ]] && { c_dim=$'\033[2m'; c_cyan=$'\033[36m'; c_off=$'\033[0m'; }
+
+    # printf '═%.0s' $(seq 1 N): bewährte Bash-Idiom für N-fache Wiederholung
+    # eines Strings -- "tr ' ' '═'" scheitert hier, weil tr Mehrbyte-UTF-8-
+    # Zeichen (═ = 3 Byte) nicht korrekt ersetzt.
+    #
+    # Kopfzeile: minimales Gerüst "═ Info: ═", danach mit ═ bis maxwidth
+    # aufgefüllt statt einer vom Label unabhängigen fixen Rahmenbreite.
+    local label="Info:"
+    local head="═ ${label} "
+    local fill_len=$(( maxwidth - ${#head} ))
+    (( fill_len < 1 )) && fill_len=1
+    local fill
+    fill=$(printf '═%.0s' $(seq 1 "$fill_len"))
+
+    local border
+    border=$(printf '═%.0s' $(seq 1 "$maxwidth"))
+
+    {
+        printf '%s═ %s%s%s%s %s%s\n' "$c_dim" "$c_off$c_cyan" "$label" "$c_off" "$c_dim" "$fill" "$c_off"
+        fold -s -w "$maxwidth" <<<"$text"
+        printf '%s%s%s\n' "$c_dim" "$border" "$c_off"
+    } >&2
+}
+
+# _hinweis <text>: einheitlicher Info-Hinweis auf stderr. Wählt automatisch
+# zwischen einzeiliger Badge (_hinweis_onecol) und mehrzeiligem Block
+# (_hinweis_multicol) -- je nachdem, ob <text> mit dem MINIMALEN Onecol-Rand
+# ("═ Info: " davor, " ═" danach -- _hinweis_onecol füllt selbst bis 60 auf)
+# einzeilig unter 60 Zeichen bleiben würde.
+_hinweis() {
+    local text="$1"
+    local minimal_prefix="═ Info: "
+    local minimal_suffix=" ═"
+    if (( ${#minimal_prefix} + ${#text} + ${#minimal_suffix} > 60 )); then
+        _hinweis_multicol "$text"
+    else
+        _hinweis_onecol "$text"
+    fi
+}
+
+# ══════════════════════════════════════════════════════════════════
 # FUNKTIONEN
 # (auch wenn's keine Aliase sind: hier statt in der .bashrc, da diese
 #  Datei ohnehin früh beim Start geladen wird)
@@ -65,7 +144,7 @@ findgrep() {
     # -- markiert das Ende der Optionen, damit ein Suchmuster, das zufällig
     # mit "-" beginnt, nicht als (unbekannte) grep-Option missverstanden wird.
     find . -type f -not -path '*/.git/*' -exec grep -in --color=auto -I "${opts[@]}" -- "$pattern" {} +
-    echo "════════ Info: Es gibt auch das schnellere 'findrg' ════════" >&2
+    _hinweis "Es gibt auch das schnellere 'findrg'"
 }
 
 # findrg [rg-Optionen] <suchbegriff>: wie findgrep, aber mit ripgrep (rg) statt
@@ -82,6 +161,48 @@ findrg() {
     # (anders als findgrep oben) selbst erkennt, was Option, Pfad oder
     # Suchmuster ist -- kein manuelles Aufteilen der Argumente nötig.
     rg -i "$@"
+}
+
+# fd-Wrapper: fd (im Gegensatz zu z.B. rg) zeigt versteckte Dateien/Ordner nur
+# mit -H/--hidden, was leicht übersehen wird. Statt fd standardmäßig auf -H
+# umzustellen (würde .git & Co. mit reinziehen, da fd .git nur über
+# .gitignore-artige Ignore-Regeln kennt, nicht als Sonderfall) gibt es bei
+# wenigen Treffern einen Hinweis auf -H/-u. -H/-u im Aufruf bereits gesetzt ->
+# reiner Passthrough ohne Hinweis, ohne Zwischenpuffern (Live-Streaming/Farbe
+# von fd bleiben unangetastet).
+fd() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            -H|--hidden|-u|--unrestricted*)
+                command fd "$@"
+                return
+                ;;
+        esac
+    done
+
+    # --color=$color statt fd selbst über die eigene TTY-Erkennung
+    # entscheiden zu lassen: die Ausgabe wird unten in $out abgefangen (um
+    # die Trefferzahl zu zählen), dabei sieht fd stdout nicht mehr als
+    # Terminal und würde Farben sonst von sich aus abschalten.
+    local color=auto
+    [[ -t 1 ]] && color=always
+
+    local out
+    out=$(command fd --color="$color" "$@")
+    local status=$?
+
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+
+    if (( status == 0 )); then
+        local count=0
+        [[ -n "$out" ]] && count=$(grep -c '' <<<"$out")
+        if (( count <= 5 )); then
+            _hinweis "$count Treffer — versteckte Dateien: -H, alles inkl. .git: -u"
+        fi
+    fi
+
+    return "$status"
 }
 
 # claudegrep [--all] [--lines N] <suchbegriff> [Verzeichnis]: durchsucht
