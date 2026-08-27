@@ -1,0 +1,102 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname -}}
+{{- if not $machine -}}
+{{   fail (printf "run_onchange_after_51-install-wlan-monitor-init: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
+{{- end }}
+
+{{ if $machine.sysvinit -}}
+# ══════════════════════════════════════════════════════════════════
+# WLAN-MONITOR: LSB-INIT-SKRIPT NACH /etc/init.d INSTALLIEREN
+# (sysvinit-Autostart fuer check_connection.sh. Nur auf Maschinen mit
+#  machines.<host>.sysvinit: true in .chezmoidata.yaml - aktuell x220.
+#  DAEMON/WORKDIR zeigen auf ~/.local/bin, weil check_connection.sh dort
+#  per run_after_50-symlink-vault-scripts.sh.tmpl aus dem Vault verlinkt
+#  wird - dieses Skript muss daher NACH 50 laufen (Nummerierung). OUTLOG
+#  liegt bewusst NICHT unter WORKDIR, sondern in ~/.cache/wlan-monitor -
+#  check_connection.sh selbst schreibt sein eigenes Log ebenfalls dorthin
+#  (fester Pfad, nicht vom Aufrufort abgeleitet), damit unter ~/.local/bin
+#  keine Log-Verzeichnisse zwischen den Binaries landen.
+#  run_onchange statt run_once: chezmoi erkennt Aenderungen am
+#  eingebetteten Init-Skript automatisch am Hash des gerenderten
+#  Skriptinhalts, kein manueller Hash-Kommentar noetig (Inhalt steckt
+#  komplett in diesem Template statt in einer separaten Datei).
+# ══════════════════════════════════════════════════════════════════
+
+INIT_SCRIPT=/etc/init.d/wlan-monitor
+TMP_INIT="$(mktemp)"
+trap 'rm -f "$TMP_INIT"' EXIT
+
+cat >"$TMP_INIT" <<'INIT_EOF'
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          wlan-monitor
+# Required-Start:    $network $remote_fs $syslog
+# Required-Stop:     $network $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: WLAN-Verbindungsmonitor mit Auto-Reparatur
+# Description:       Ueberwacht die WLAN-Verbindung und startet bei Ausfall
+#                    gestufte Reparaturmassnahmen (check_connection.sh).
+### END INIT INFO
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+NAME=wlan-monitor
+DAEMON={{ .chezmoi.homeDir }}/.local/bin/check_connection.sh
+PIDFILE=/run/$NAME.pid
+WORKDIR={{ .chezmoi.homeDir }}/.local/bin
+OUTLOG={{ .chezmoi.homeDir }}/.cache/wlan-monitor/runtime.log
+
+test -x "$DAEMON" || exit 5
+
+. /lib/lsb/init-functions
+
+case "$1" in
+  start)
+    log_daemon_msg "Starte $NAME"
+    # OUTLOG-Verzeichnis muss existieren, BEVOR die Shell unten die Umleitung
+    # oeffnet - sonst stirbt der Hintergrundprozess sofort und lautlos
+    # (start-stop-daemon meldet trotzdem Erfolg, das exec scheitert erst danach).
+    mkdir -p "$(dirname "$OUTLOG")"
+    # stdout/stderr des Daemons nach $OUTLOG umleiten -> "tail -f" im Terminal moeglich
+    start-stop-daemon --start --quiet --background \
+      --make-pidfile --pidfile "$PIDFILE" \
+      --chdir "$WORKDIR" \
+      --startas /bin/sh -- -c "exec \"$DAEMON\" >> \"$OUTLOG\" 2>&1"
+    log_end_msg $?
+    ;;
+  stop)
+    log_daemon_msg "Stoppe $NAME"
+    start-stop-daemon --stop --quiet --retry=TERM/10/KILL/5 --pidfile "$PIDFILE"
+    RET=$?
+    rm -f "$PIDFILE"
+    log_end_msg $RET
+    ;;
+  restart|force-reload)
+    "$0" stop
+    sleep 1
+    "$0" start
+    ;;
+  status)
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      echo "$NAME laeuft (PID $(cat "$PIDFILE"))."
+      exit 0
+    else
+      echo "$NAME laeuft nicht."
+      exit 3
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}" >&2
+    exit 3
+    ;;
+esac
+
+exit 0
+INIT_EOF
+
+sudo install -m 755 "$TMP_INIT" "$INIT_SCRIPT"
+sudo update-rc.d wlan-monitor defaults
+echo "==> $INIT_SCRIPT installiert/aktualisiert. Bei Aenderung: 'sudo service wlan-monitor restart' nicht vergessen."
+{{ end -}}
