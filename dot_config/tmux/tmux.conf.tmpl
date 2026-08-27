@@ -15,6 +15,14 @@ set -g mouse on # mit Mausoption: Einfügen mtlr. Maustaste auf einmal nicht meh
 # 3.4 copy support
 set-window-option -g allow-passthrough on
 
+# OSC 52: in der SSH-Session kopierten Text ans lokale Terminal durchreichen
+# (Kitty am x230, Termius am iPhone). tmux-Default ist "external" -- das leitet
+# nur OSC-52-Sequenzen von Programmen INNERHALB tmux weiter, setzt aber bei
+# tmux' eigenen Copy-Kommandos (copy-mode, tmux-fingers via `load-buffer -w`)
+# selbst kein OSC 52 ab. "on" macht beides. xclip/xsel/yank sind hier nutzlos,
+# weil die SSH-Session kein $DISPLAY hat -- OSC 52 ist der einzige Weg zurueck.
+set -g set-clipboard on
+
 # Neue Panes/Windows im cwd des aktuellen Panes statt im ursprünglichen Startverzeichnis öffnen
 bind '"' split-window -v -c "#{pane_current_path}"
 bind %   split-window -h -c "#{pane_current_path}"
