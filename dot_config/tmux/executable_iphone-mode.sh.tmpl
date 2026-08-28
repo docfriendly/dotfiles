@@ -22,6 +22,7 @@ if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true"
   # Laptop-Zweig unten, nur dort war der Fixwert schon vorher zu klein.
   _tab_w=7
   _name_trunc=4
+  _scroll_speed=1
 else
   _iphone=false
   tmux set -g status-position bottom
@@ -35,7 +36,20 @@ else
   # sh-STM, Chezmoi) exakt oder fast exakt ab, längere werden gekürzt.
   _tab_w=13
   _name_trunc=10
+  _scroll_speed=3
 fi
+
+# Mausrad-Scrolltempo: iPhone/Termius 1 Zeile/Tick (smooth-Alternative fehlt
+# dort, aber 1 ist wenigstens ertraeglich), Laptop der tmux-better-mouse-mode-
+# Default 3 Zeilen/Tick (am Touchpad sonst zu langsam). Die Option allein
+# reicht nicht: das Plugin baut seine Wheel-Bindings beim Laden fest aus dem
+# damaligen Optionswert zusammen (siehe scroll_copy_mode.tmux) -- ein reines
+# "tmux set" hier würde also ohne Neustart der ganzen tmux-Session wirkungslos
+# bleiben. Deshalb Option setzen UND das Plugin-Script hier erneut ausführen,
+# damit es die Bindings mit dem neuen Wert neu erzeugt.
+tmux set -g @scroll-speed-num-lines-per-scroll "$_scroll_speed"
+"{{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-better-mouse-mode/scroll_copy_mode.tmux"
+unset _scroll_speed
 
 tmux set -g status 2
 

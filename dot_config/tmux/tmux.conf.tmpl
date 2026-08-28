@@ -55,10 +55,14 @@ set -g @plugin 'nhdaly/tmux-better-mouse-mode'
 set -g @plugin 'Morantron/tmux-fingers'
 set -g @plugin 'Morantron/tmux-open'
 
-# tmux-better-mouse-mode: Mausrad-Scrollen weniger ruckelig (Default 3 Zeilen/Tick)
-# und in Vollbild-Programmen (vim, less, man) Scroll-Events als Pfeiltasten/
-# PageUp statt Copy-Mode durchreichen (siehe Termius-Scroll-Recherche, 20.08.2026).
-set -g @scroll-speed-num-lines-per-scroll "1"
+# tmux-better-mouse-mode: in Vollbild-Programmen (vim, less, man) Scroll-Events
+# als Pfeiltasten/PageUp statt Copy-Mode durchreichen (siehe
+# Termius-Scroll-Recherche, 20.08.2026). Das Scrolltempo selbst
+# (@scroll-speed-num-lines-per-scroll) wird NICHT hier gesetzt, sondern von
+# iphone-mode.sh bei jedem Client-Attach passend zum Client neu gesetzt UND
+# das Plugin-Script neu ausgefuehrt (Laptop 3 Zeilen/Tick, iPhone/Termius 1) --
+# ein reiner "set" hier wuerde ohnehin nur den beim TPM-Start (Zeile ~148)
+# einmalig gelesenen Startwert liefern.
 set -g @emulate-scroll-for-no-mouse-alternate-buffer "on"
 
 # tmux-fingers: Prefix + F zeigt Hints (wie Vimium) auf URLs/Pfaden/Hashes im
