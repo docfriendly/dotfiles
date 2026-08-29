@@ -20,3 +20,17 @@ ulauncher-calc-patch
 {{- if ne .chezmoi.hostname "x220" }}
 .config/autostart/tmux-server.desktop
 {{- end }}
+
+# Barrier-Server-Config: nur x230 laeuft als Barrier-Server (Tastatur/Maus-Quelle).
+# x220 nutzt Deskflow, kartoffel ist nur Client - dort waere die Datei sinnlos.
+# Siehe SECOND_BRAIN/deskflow-barrier-rollentausch/BERICHT_deskflow-barrier-rollentausch.md
+{{- if ne .chezmoi.hostname "x230" }}
+.config/barrier
+{{- end }}
+
+# kvm-rolle-Autostart (Rollentausch-Verbund): definierter Startzustand nur auf
+# x220 (-> Client von x230). x230 startet Barrier weiter ueber XFCE-Session-
+# Restore; ein zweiter Autostart wuerde barriers doppelt starten.
+{{- if ne .chezmoi.hostname "x220" }}
+.config/autostart/kvm-rolle.desktop
+{{- end }}
