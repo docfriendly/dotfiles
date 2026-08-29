@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=kvm-rolle boot
+Comment=Maus/Tastatur-Verbund: definierter Startzustand (x220 -> Client von x230)
+Exec=kvm-rolle boot
+TryExec=kvm-rolle
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=10
+OnlyShowIn=XFCE;
