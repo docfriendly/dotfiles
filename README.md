@@ -362,7 +362,14 @@ Reihenfolge-Problem mit Syncthing: Der Symlink kann angelegt werden, bevor
 der Ordner durch Syncthing befüllt ist – er zeigt dann kurz ins Leere und
 heilt sich von selbst, sobald die Dateien ankommen.
 
-Alle drei Mechanismen hängen am Hostnamen und nutzen denselben Guard wie
+**Claude-Code-Instruktionen** (`~/Sync/vault/claude/CLAUDE.md`): enthält
+persönliche/private Verhaltensregeln für Claude Code, die auch nach dem
+öffentlichen Mirror nicht ins Repo sollen. Wird genau wie die
+tealdeer-Pages per nativem chezmoi-`symlink_`-Eintrag
+(`dot_claude/symlink_CLAUDE.md.tmpl`) nach `~/.claude/CLAUDE.md` verlinkt –
+identisch (maschinenunabhängig), kein `<hostname>`-Unterordner nötig.
+
+Alle vier Mechanismen hängen am Hostnamen und nutzen denselben Guard wie
 `dot_config/tmux/tmux.conf.tmpl`: ein unbekannter Hostname lässt
 `chezmoi apply` bewusst fehlschlagen statt still eine leere/falsche
 Maschine anzunehmen (siehe [Maschinenspezifische Werte](#maschinenspezifische-werte)
