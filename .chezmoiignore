@@ -28,9 +28,9 @@ ulauncher-calc-patch
 .config/barrier
 {{- end }}
 
-# kvm-rolle-Autostart (Rollentausch-Verbund): definierter Startzustand nur auf
-# x220 (-> Client von x230). x230 startet Barrier weiter ueber XFCE-Session-
-# Restore; ein zweiter Autostart wuerde barriers doppelt starten.
-{{- if ne .chezmoi.hostname "x220" }}
+# kvm-rolle-Autostart (Rollentausch-Verbund): definierter Startzustand auf x220
+# (-> Client von x230) und x230 (-> Server, headless barriers statt GUI). Auf
+# allen anderen Hosts (kartoffel) unerwuenscht.
+{{- if and (ne .chezmoi.hostname "x220") (ne .chezmoi.hostname "x230") }}
 .config/autostart/kvm-rolle.desktop
 {{- end }}
