@@ -70,6 +70,19 @@ set -g @emulate-scroll-for-no-mouse-alternate-buffer "on"
 # Zwischenablage. Default-Trigger "F" kollidiert hier mit nichts Belegtem.
 set -g @fingers-key F
 
+# tmux-fingers-Treffer ans lokale Terminal (Kitty am x230) durchreichen.
+# tmux-fingers benutzt intern `tmux load-buffer -w` -- dessen server-originiertes
+# OSC 52 kommt ueber die Kette x220-tmux -> SSH -> x230-tmux -> Kitty NICHT an
+# (clipdiag-Differentialtest, 01.09.2026: Marker :lbw landete nirgends, :osc52c
+# = rohe OSC-52-Sequenz aufs Client-TTY dagegen sofort im x230-CLIPBOARD).
+# Deshalb die main-action von :copy: auf ein eigenes Kommando umbiegen. Der
+# Treffer geht trotzdem zusaetzlich in den tmux-Buffer (action_runner ruft
+# set_buffer immer auf) -- Mittelklick INNERHALB tmux bleibt also erhalten.
+# Achtung: die Option heisst @fingers-main-action, NICHT @fingers-copy-command
+# (v1-Name, in v2 nur noch Doku-Tippfehler im README -- stiller No-Op).
+# Details: ~/Sync/vault/SECOND_BRAIN/tmux-fingers-clipboard-ueber-ssh/
+set -g @fingers-main-action '{{ .chezmoi.homeDir }}/.local/bin/osc52-copy'
+
 # tmux-open: ergaenzt copy-mode-vi um "o" (im Standardbrowser oeffnen) und
 # "C-o" (mit $EDITOR oeffnen) fuer die aktuelle Selektion -- greift auch auf
 # per tmux-fingers ausgewaehlte Hints. Keine eigene Prefix-Bindung noetig,
