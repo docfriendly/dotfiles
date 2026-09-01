@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# cd die aktive tmux-Pane-Shell ins Elternverzeichnis des Pfads, der aktuell im
+# tmux-Paste-Buffer liegt. Gedacht als Anschluss an tmux-fingers: einen
+# Datei-Pfad-Hint grabben (Prefix+F <buchstabe>), dann Prefix+G.
+#
+# Funktioniert unabhaengig von @fingers-main-action, weil tmux-fingers den
+# Treffer immer ZUSAETZLICH in den Paste-Buffer legt (action_runner ruft
+# set_buffer bedingungslos -- siehe
+# ~/Sync/vault/SECOND_BRAIN/tmux-fingers-clipboard-ueber-ssh/).
+#
+# Eingebunden via:
+#   bind G run-shell -b '/home/harry/.local/bin/tmux-cd-buffer-dir'
+#
+# Ist der Treffer selbst ein Verzeichnis, wird DORT hinein gewechselt, sonst ins
+# dirname. rg-Stil-Positionsangaben (:ZEILE bzw. :ZEILE:SPALTE) am Ende werden
+# abgeschnitten. Ist im Buffer gar kein Pfad (Git-SHA o.ae.), passiert nichts.
+# Das fuehrende Leerzeichen vor "cd" haelt den Befehl aus der Shell-History
+# (HISTCONTROL=ignoreboth).
+
+set -euo pipefail
+
+buf=$(tmux show-buffer 2>/dev/null) || exit 0
+buf=${buf%%$'\n'*}                                             # nur die erste Zeile
+buf=$(printf '%s' "$buf" | sed -E 's/:[0-9]+(:[0-9]+)?:?$//')  # :ZEILE[:SPALTE] weg
+[ -n "$buf" ] || exit 0
+
+base=$(tmux display -p '#{pane_current_path}' 2>/dev/null) || base=
+case $buf in
+  /*) abs=$buf ;;
+  *)  abs=${base:+$base/}$buf ;;
+esac
+
+if [ -d "$abs" ]; then
+  target=$buf
+else
+  target=$(dirname -- "$buf")
+fi
+[ -n "$target" ] && [ "$target" != "." ] || exit 0
+
+tmux send-keys -- " cd ${target@Q}" Enter

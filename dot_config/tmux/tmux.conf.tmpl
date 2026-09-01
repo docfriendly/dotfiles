@@ -83,6 +83,14 @@ set -g @fingers-key F
 # Details: ~/Sync/vault/SECOND_BRAIN/tmux-fingers-clipboard-ueber-ssh/
 set -g @fingers-main-action '{{ .chezmoi.homeDir }}/.local/bin/osc52-copy'
 
+# Prefix + G: ins Elternverzeichnis des zuletzt per tmux-fingers gegrabbten
+# Pfads wechseln. Braucht keine eigene fingers-Action -- der Treffer liegt eh
+# im Paste-Buffer (action_runner ruft set_buffer bedingungslos). Das Script
+# liest den Buffer, schneidet rg-Stil :ZEILE:SPALTE ab, dirname, und tippt
+# " cd <dir>" in die aktive Pane (fuehrendes Leerzeichen -> nicht in History).
+# Grosses G passt zum grossen F von fingers. Details im Vault-Ordner oben.
+bind G run-shell -b '{{ .chezmoi.homeDir }}/.local/bin/tmux-cd-buffer-dir'
+
 # tmux-open: ergaenzt copy-mode-vi um "o" (im Standardbrowser oeffnen) und
 # "C-o" (mit $EDITOR oeffnen) fuer die aktuelle Selektion -- greift auch auf
 # per tmux-fingers ausgewaehlte Hints. Keine eigene Prefix-Bindung noetig,
