@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# clipdiag - Zwischenablagen-Diagnose ueber tmux / X / Wayland / SSH hinweg.
+#
+#   clipdiag            (= clipdiag show)  Tabelle aller LESBAREN Ablagen
+#   clipdiag watch                         show alle 0.5 s (Strg+C beendet)
+#   clipdiag send [TAG]                    eindeutige Marker in ALLE SCHREIBBAREN
+#                                          Ablagen, pro Mechanismus getaggt
+#
+# Ablauf zum Debuggen:
+#   1) x230 (LOKALES Terminal, nicht per SSH):  clipdiag watch
+#   2) x220 (IM tmux-Pane):                     clipdiag send
+#   3) schauen, welcher ":marker" auf x230 in welcher Zeile auftaucht
+#      -> zeigt exakt, welcher Transportweg funktioniert.
+#
+# Marker-Suffixe:
+#   :osc52c  rohe OSC-52-Sequenz (clipboard) ans TTY   -> tmux-Passthrough
+#   :osc52p  rohe OSC-52-Sequenz (primary)   ans TTY
+#   :lbw     tmux load-buffer -w  (das macht tmux-fingers)  -> server-originiert
+#   :sb      tmux set-buffer      (nur tmux-intern, kein OSC 52)
+#   :<disp>P / :<disp>C   xclip/xsel in X-PRIMARY / -CLIPBOARD des Displays
+
+set -u
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+trunc() { # stdin -> gekuerzt, Steuerzeichen sichtbar
+  local s; s=$(cat)
+  s=${s//$'\n'/'\n'}; s=${s//$'\t'/'\t'}; s=${s//$'\r'/'\r'}
+  if [ "${#s}" -gt 72 ]; then printf '%s...' "${s:0:69}"; else printf '%s' "$s"; fi
+}
+
+# --- X-Werkzeug -------------------------------------------------------------
+XT=""
+have xclip && XT=xclip
+[ -z "$XT" ] && have xsel && XT=xsel
+
+x_server_up() { timeout 2 xset -display "$1" q >/dev/null 2>&1; }
+
+xread() { # $1=display  $2=primary|clipboard
+  local d=$1 sel=$2 out
+  [ -z "$XT" ] && { echo "(kein xclip/xsel installiert)"; return; }
+  if [ "$XT" = xclip ]; then
+    out=$(DISPLAY="$d" timeout 2 xclip -o -selection "$sel" 2>/dev/null)
+  else
+    local f=-p; [ "$sel" = clipboard ] && f=-b
+    out=$(DISPLAY="$d" timeout 2 xsel -o "$f" 2>/dev/null)
+  fi
+  if [ -z "$out" ]; then
+    x_server_up "$d" && echo "(leer)" || echo "(kein X-Server auf $d erreichbar)"
+    return
+  fi
+  printf '%s' "$out" | trunc
+}
+
+xwrite() { # $1=display $2=primary|clipboard $3=value ; rc 0 = geschrieben
+  local d=$1 sel=$2 val=$3
+  [ -z "$XT" ] && return 1
+  x_server_up "$d" || return 1
+  if [ "$XT" = xclip ]; then
+    printf '%s' "$val" | DISPLAY="$d" timeout 2 xclip -selection "$sel" -i 2>/dev/null
+  else
+    local f=-p; [ "$sel" = clipboard ] && f=-b
+    printf '%s' "$val" | DISPLAY="$d" timeout 2 xsel "$f" -i 2>/dev/null
+  fi
+}
+
+displays() { # eine :N pro Zeile: $DISPLAY + alle Sockets
+  local seen=" " d s n
+  [ -n "${DISPLAY:-}" ] && { echo "$DISPLAY"; seen="$seen$DISPLAY "; }
+  for s in /tmp/.X11-unix/X*; do
+    [ -e "$s" ] || continue
+    n=":${s##*/X}"
+    case "$seen" in *" $n "*) ;; *) echo "$n"; seen="$seen$n ";; esac
+  done
+}
+
+tmux_running() { have tmux && tmux list-buffers >/dev/null 2>&1; }
+
+# --- Ausgabe -------------------------------------------------------------
+show_context() {
+  echo "clipdiag @ $(hostname)    $(date '+%F %T')"
+  echo "--------------------------------------------------------------------------"
+  printf '  %-16s %s\n' "in tmux"          "$([ -n "${TMUX:-}" ] && echo yes || echo no)"
+  printf '  %-16s %s\n' "ssh"              "$([ -n "${SSH_CONNECTION:-}" ] && echo "yes   ${SSH_CONNECTION}" || echo no)"
+  printf '  %-16s %s\n' '$DISPLAY'         "${DISPLAY:-(unset)}"
+  printf '  %-16s %s\n' '$WAYLAND_DISPLAY' "${WAYLAND_DISPLAY:-(unset)}"
+  printf '  %-16s %s\n' '$SSH_TTY'         "${SSH_TTY:-(unset)}"
+  printf '  %-16s %s\n' "X-Sockets"        "$(ls /tmp/.X11-unix/ 2>/dev/null | sed 's/^X/:/' | tr '\n' ' ')"
+  printf '  %-16s %s\n' "xclip/xsel"       "${XT:-(keins!)}"
+  if tmux_running; then
+    printf '  %-16s %s\n' "set-clipboard"  "$(tmux show -gv set-clipboard 2>/dev/null)"
+    local tf; tf=$(tmux display -p '#{client_termfeatures}' 2>/dev/null)
+    case "$tf" in
+      *clipboard*) printf '  %-16s %s\n' "termfeatures" "clipboard OK    [$tf]" ;;
+      *)           printf '  %-16s %s\n' "termfeatures" "clipboard FEHLT [$tf]" ;;
+    esac
+    printf '  %-16s %s\n' "client_tty"     "$(tmux display -p '#{client_tty}' 2>/dev/null)"
+    printf '  %-16s %s\n' "clients"        "$(tmux list-clients -F '#{client_name}(#{client_termname})' 2>/dev/null | tr '\n' ' ')"
+  fi
+  echo
+}
+
+show_table() {
+  printf '%-30s | %s\n' "STORE" "VALUE"
+  printf '%-30s-+-%s\n' "------------------------------" "-------------------------------------------"
+  if tmux_running; then
+    printf '%-30s | %s\n' "tmux buffer (top)" "$(tmux show-buffer 2>/dev/null | trunc)"
+  else
+    printf '%-30s | %s\n' "tmux buffer (top)" "(kein tmux-Server)"
+  fi
+  local d
+  while read -r d; do
+    [ -z "$d" ] && continue
+    printf '%-30s | %s\n' "X $d PRIMARY"   "$(xread "$d" primary)"
+    printf '%-30s | %s\n' "X $d CLIPBOARD" "$(xread "$d" clipboard)"
+  done < <(displays)
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && have wl-paste; then
+    printf '%-30s | %s\n' "wayland PRIMARY"   "$(wl-paste -p -n 2>/dev/null | trunc)"
+    printf '%-30s | %s\n' "wayland CLIPBOARD" "$(wl-paste -n    2>/dev/null | trunc)"
+  fi
+}
+
+do_send() {
+  local tag=${1:-CD} base
+  base="${tag}-$(hostname)-$(date +%H%M%S)-$RANDOM"
+  echo "Marker-Basis: $base"
+  echo
+  local b64 tty m
+  b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+  tty=$(tmux display-message -p '#{client_tty}' 2>/dev/null)
+  [ -n "$tty" ] && [ -w "$tty" ] || tty=/dev/tty
+
+  m="$base:osc52c"; printf '\033]52;c;%s\a' "$(b64 "$m")" > "$tty" 2>/dev/null \
+    && echo "  osc52 c  -> $tty        ($m)"
+  m="$base:osc52p"; printf '\033]52;p;%s\a' "$(b64 "$m")" > "$tty" 2>/dev/null \
+    && echo "  osc52 p  -> $tty        ($m)"
+
+  if tmux_running; then
+    m="$base:lbw"; printf '%s' "$m" | tmux load-buffer -w - 2>/dev/null \
+      && echo "  tmux load-buffer -w                ($m)"
+    m="$base:sb";  tmux set-buffer -- "$m" 2>/dev/null \
+      && echo "  tmux set-buffer                    ($m)"
+  fi
+
+  local d
+  while read -r d; do
+    [ -z "$d" ] && continue
+    m="$base:${d}P"; xwrite "$d" primary   "$m" && echo "  X $d PRIMARY   <- xclip   ($m)"
+    m="$base:${d}C"; xwrite "$d" clipboard "$m" && echo "  X $d CLIPBOARD <- xclip   ($m)"
+  done < <(displays)
+
+  echo
+  echo "Jetzt auf der ANDEREN Maschine:  clipdiag show"
+}
+
+case "${1:-show}" in
+  show)  show_context; show_table ;;
+  watch) trap 'exit 0' INT; while :; do clear; show_context; show_table; sleep 0.5; done ;;
+  send)  shift; do_send "${1:-CD}" ;;
+  *)     echo "usage: clipdiag [show|watch|send [TAG]]" >&2; exit 1 ;;
+esac
