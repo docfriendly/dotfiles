@@ -2,8 +2,8 @@
 Type=Application
 Name=kvm-rolle boot
 Comment=Maus/Tastatur-Verbund: definierter Startzustand pro Host (kvm-rolle boot: x230 -> Server, x220 -> Client von x230)
-Exec=kvm-rolle boot
-TryExec=kvm-rolle
+Exec=/home/harry/.local/bin/kvm-rolle boot
+TryExec=/home/harry/.local/bin/kvm-rolle
 Terminal=false
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=15
