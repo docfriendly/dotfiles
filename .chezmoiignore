@@ -34,3 +34,11 @@ ulauncher-calc-patch
 {{- if and (ne .chezmoi.hostname "x220") (ne .chezmoi.hostname "x230") }}
 .config/autostart/kvm-rolle.desktop
 {{- end }}
+
+# pbuild deckelt podman-Image-Builds thermisch (CPU-Takt + Turbo via
+# x220-freqcap, installiert von .chezmoiscripts/run_onchange_after_52-...).
+# Nur x220 - dort trat der thermische Hard-Lock beim Image-Bau auf, siehe
+# SECOND_BRAIN/x220-forensics-unplanned-restart/BERICHT.md.
+{{- if ne .chezmoi.hostname "x220" }}
+.local/bin/pbuild
+{{- end }}
