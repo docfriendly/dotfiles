@@ -662,3 +662,227 @@ _track_sudo_use() {
     touch "$_SUDO_CACHE_FILE" 2>/dev/null
   fi
 }
+
+# _ssh_ports: SSH-Port(s) aus /etc/ssh/sshd_config(.d) (world-readable), Default
+# 22. Nimmt `Port N` und `ListenAddress host:N`. Ohne sudo; die autoritative
+# Variante (`sshd -T`) braucht root und läuft in _sessions_audit.
+_ssh_ports() {
+    local p
+    p=$( { grep -rhiE '^[[:space:]]*Port[[:space:]]+[0-9]+' \
+               /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null | awk '{ print $2 }'
+           grep -rhiE '^[[:space:]]*ListenAddress[[:space:]].*:[0-9]+[[:space:]]*$' \
+               /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null \
+               | sed -E 's/.*:([0-9]+)[[:space:]]*$/\1/'
+         } | sort -un | paste -sd' ' - )
+    printf '%s\n' "${p:-22}"
+}
+
+# _ss_portfilter <port>...: baut den ss-Ausdruck "( sport = :a or sport = :b )".
+_ss_portfilter() {
+    local f p
+    for p in "$@"; do f="${f:+$f or }sport = :$p"; done
+    printf '( %s )\n' "${f:-sport = :22}"
+}
+
+# sessions [-a] [port ...]: wie `who`, aber ohne den utmp-Lärm -- obere Hälfte
+# zeigt nur echte Logins (lokaler Desktop + SSH) und faltet tmux zu EINER Zeile
+# statt einer pro Pane. Nach der "--- ... ---"-Zeile darunter die KERNEL-Sicht
+# auf SSH (ss + ps, beide ohne sudo):
+#   * die sshd-Session-Prozesse "sshd: user@pts/N" bzw. "...@notty" -- jede wird
+#     gegen die pts-Liste aus `who` geprüft und mit "!!" markiert, wenn sie oben
+#     fehlt (z.B. "@notty" = PTY-lose Session, für `who` unsichtbar);
+#   * Anzahl eingehender established TCP-Sockets auf dem/den SSH-Port(s) + Peer-IPs.
+#     Port(s) kommen aus /etc/ssh/sshd_config(.d) (Default 22; die Datei ist
+#     world-readable) -- nichts eingeben nötig. Ein oder mehrere Argumente
+#     überschreiben die Erkennung: `sessions 22 2222`;
+#   * laufende mosh-server (UDP, taucht im SSH-Port-Filter nicht auf).
+#
+# Warum die untere Hälfte: `who` liest /run/utmp = KOOPERATIVE Buchführung.
+# `ssh host cmd` und `ssh -T` (kein PTY -> kein utmp-Eintrag), `ssh -N`,
+# scp/sftp, Reverse Shells und alles abseits des PAM-Login-Pfads schreiben
+# nichts. ss/ps kommen aus dem Kernel und sehen das. Grenzen/Details:
+# ~/Sync/vault/SECOND_BRAIN/CLI-KONSOLENKOMMANDOS-NACHSCHLAGEWERK/who.md
+#
+# Ohne sudo genügt: fremde sshd-Kinder laufen nach der Privilege-Separation als
+# ihr jeweiliger User -> Prozess + geänderter Proctitle bleiben lesbar; nur
+# `ss -p` lässt bei fremden Sockets die users:(())-Spalte leer -- daraus
+# brauchen wir hier ohnehin nur Peer-IP + Anzahl. awk durchgängig mit
+# sub()/split() statt match(s,re,arr) (gawk-only), damit es mit mawk läuft.
+#
+# `-a` / `--audit` hängt zusätzlich den sudo-pflichtigen Teil an (_sessions_audit):
+# `sshd -T` (autoritative Portliste), Auth-Log (auch geschlossene Verbindungen),
+# Fehlversuche (lastb), `ss -tnp` mit Prozessspalte. sudo fragt dabei SELBST nach
+# dem Passwort -- einmal vorweg (`sudo -v`), damit nicht jedes Kommando einzeln
+# fragt; ist der sudo-Cache dieser tty noch warm, kommt gar kein Prompt. Abbruch
+# (Ctrl-C / falsches Passwort) -> Audit-Block wird übersprungen, der Rest bleibt.
+sessions() {
+    local audit=0
+    case "$1" in -a|--audit) audit=1; shift ;; esac
+    # Port(s): explizite Argumente gewinnen, sonst aus sshd_config (Default 22).
+    local ports portdisp
+    if [ "$#" -gt 0 ]; then ports="$*"; else ports=$(_ssh_ports); fi
+    portdisp=":${ports// /, :}"
+
+    # ── obere Hälfte: echte Logins, tmux gefaltet ──
+    who -H | head -n1
+    who | awk '
+        /\(tmux\([0-9]+\)/ {
+            s = $NF
+            sub(/^.*\(tmux\(/, "", s)   # -> "<pid>).%<n>)"
+            sub(/\).*/,        "", s)   # -> "<pid>"
+            panes[s]++
+            next
+        }
+        { print }
+        END {
+            for (pid in panes)
+                printf "%-8s %-12s %s\n", ENVIRON["USER"], "tmux", \
+                       "Server " pid ": " panes[pid] " Panes"
+        }
+    '
+
+    # ── untere Hälfte: Kernel-Sicht auf SSH (ss + ps, ohne sudo) ──
+    printf -- '--- aktive SSH-Verbindungen auf %s (ss + ps, ohne sudo) ---\n' "$portdisp"
+
+    # pts-Liste aus who für den Abgleich; LEITUNG kann "sshd pts/1" sein (coreutils
+    # 9.7) -> alle Felder scannen statt fix $2.
+    local whopts
+    whopts=$(who | awk '{ for (i=1;i<=NF;i++) if ($i ~ /^pts\//) print $i }')
+
+    # sshd-Session-Prozesse: Proctitle "sshd: user@pts/N" bzw.
+    # "sshd-session: user@notty" (OpenSSH >= 9.8). Zeilen ohne "@" (z.B.
+    # "sshd: user [priv]", der root-Monitor) fallen raus.
+    local sess
+    sess=$(ps -eo args= 2>/dev/null | awk '
+        /^sshd(-session)?: / { for (i=1;i<=NF;i++) if ($i ~ /@/) { print $i; break } }' \
+        | sort -u)
+
+    if [ -n "$sess" ]; then
+        local s tty
+        while IFS= read -r s; do
+            tty=${s#*@}
+            if [ "$tty" = notty ]; then
+                printf '  %-24s  !! kein PTY -> nicht in who\n' "$s"
+            elif printf '%s\n' "$whopts" | grep -qxF "$tty"; then
+                printf '  %-24s  (in who)\n' "$s"
+            else
+                printf '  %-24s  !! nicht in who\n' "$s"
+            fi
+        done <<<"$sess"
+    else
+        printf '  (keine sshd-Session-Prozesse)\n'
+    fi
+
+    # eingehende established TCP-Sockets auf dem/den SSH-Port(s) -> Anzahl + Peer-IPs
+    # (IPv4-mapped "::ffff:" und IPv6-Klammern normalisiert).
+    local ssf peers cnt
+    ssf=$(ss -tnH state established "$(_ss_portfilter $ports)" 2>/dev/null)
+    cnt=$(printf '%s\n' "$ssf" | grep -c .)
+    peers=$(printf '%s\n' "$ssf" | awk 'NF {
+                peer = $4
+                sub(/:[0-9]+$/, "", peer); gsub(/[][]/, "", peer); sub(/^::ffff:/, "", peer)
+                print peer
+            }' | sort | uniq -c | awk '{ printf "%s(%s) ", $2, $1 }')
+    printf '  %s established Socket(s)%s\n' "${cnt:-0}" "${peers:+ von: ${peers% }}"
+
+    # mosh: UDP-Socket (60000-61000), nicht im :22-Filter oben. `pgrep -c` gibt
+    # immer eine Zahl aus (auch "0") und exit!=0 bei 0 Treffern -> kein "|| echo".
+    local mosh
+    mosh=$(pgrep -cx mosh-server 2>/dev/null)
+    [ "${mosh:-0}" -gt 0 ] && printf '  %s mosh-server (UDP, nicht im SSH-Port-Filter)\n' "$mosh"
+
+    if who | grep -qF '(tmux('; then
+        _hinweis "tmux-Detail: 'tmux ls' bzw. 'tmux list-panes -a'"
+    fi
+
+    [ "$audit" -eq 1 ] && _sessions_audit $ports
+}
+
+# _sessions_audit <port>...: der sudo-pflichtige Teil von `sessions -a`. Ruft sudo
+# selbst auf (ein `sudo -v` vorweg bündelt den Passwort-Prompt). Bricht sauber
+# ab, wenn kein sudo (kein Passwort / kein tty). `sed 's/^/    /'` rückt jeden
+# Block ein; leere Blöcke bleiben leer (self-explanatory). Die auth.log-Zeilen
+# laufen durch _reltime_prefix -> rsyslog-ISO-Stempel wird "vor X Min." (git-hs-
+# Stil) + nackte Uhrzeit. `sshd -T` liefert die AUTORITATIVE Portliste (effektive
+# Config, nicht nur die Datei) -> wenn sie von der übergebenen abweicht, wird das
+# gezeigt und ab da diese benutzt.
+_sessions_audit() {
+    local ports="${*:-22}"
+    printf -- '--- Audit (sudo: sshd -T + Auth-Log + Fehlversuche + ss -p) ---\n'
+    if ! sudo -v 2>/dev/null; then
+        printf '  (kein sudo -> Audit übersprungen)\n'
+        return 1
+    fi
+
+    local realports
+    realports=$(sudo sshd -T 2>/dev/null | awk '$1 == "port" { print $2 }' | paste -sd' ' -)
+    if [ -n "$realports" ]; then
+        printf '  sshd -T Port(s): %s%s\n' "$realports" \
+               "$( [ "$realports" != "$ports" ] && printf '   (sessions nutzte: %s)' "$ports" )"
+        ports="$realports"
+    else
+        printf '  sshd -T Port(s): ? (nutze: %s)\n' "$ports"
+    fi
+
+    printf '  letzte SSH-Logins/-Trennungen (auth.log):\n'
+    local raw
+    if sudo test -f /var/log/auth.log; then
+        raw=$(sudo grep -aE 'sshd[^:]*:[^:]*(Accepted |Failed password |Invalid user |Disconnected from |Connection closed by )' \
+              /var/log/auth.log | tail -n 20)
+    else
+        raw=$(sudo journalctl -q _COMM=sshd -o short-iso --no-pager 2>/dev/null | tail -n 20)
+    fi
+    if [ -z "$raw" ]; then
+        printf '    (nichts / weder auth.log noch journalctl)\n'
+    else
+        printf '%s\n' "$raw" | _reltime_prefix | sed 's/^/    /'
+    fi
+
+    printf '  Fehlversuche (btmp, neueste 10):\n'
+    if command -v lastb >/dev/null && sudo test -f /var/log/btmp; then
+        sudo lastb -n 10 | sed 's/^/    /'
+    else
+        printf '    (kein btmp)\n'
+    fi
+
+    printf '  established Sockets auf %s mit Prozess:\n' ":${ports// /, :}"
+    sudo ss -tnp state established "$(_ss_portfilter $ports)" | sed 's/^/    /'
+}
+
+# _reltime_prefix: liest Zeilen von stdin, deren ERSTES Feld ein Zeitstempel ist
+# (rsyslog-ISO "2026-09-03T10:14:07.8+02:00" oder journalctl short-iso), und
+# ersetzt diesen Stempel durch eine relative Angabe im Stil von `git hs`
+# ("vor 38 Min.") plus die nackte Uhrzeit. Alle Stempel werden mit EINEM
+# `date -f -` in Epochen gewandelt, nicht pro Zeile. Zeilenzahl-Mismatch (z.B.
+# date stolpert über eine Zeile) oder fehlendes date -> Eingabe unverändert
+# durchreichen. Schwellen/Rundung wie git (date.c show_date_relative).
+_reltime_prefix() {
+    local data epochs now nd ne
+    data=$(cat)
+    [ -z "$data" ] && return 0
+    now=$(date +%s)
+    epochs=$(printf '%s\n' "$data" | awk '{ print $1 }' | date -f - +%s 2>/dev/null)
+    nd=$(printf '%s\n' "$data"   | grep -c .)
+    ne=$(printf '%s\n' "$epochs" | grep -c .)
+    if [ -z "$epochs" ] || [ "$nd" != "$ne" ]; then
+        printf '%s\n' "$data"
+        return 0
+    fi
+    paste <(printf '%s\n' "$epochs") <(printf '%s\n' "$data") | awk -F'\t' -v now="$now" '
+        function rel(e,   s, m, h, d) {
+            s = now - e; if (s < 0) s = 0
+            if (s < 90)                      return "vor " s " Sek."
+            m = int((s + 30) / 60);     if (m < 90)  return "vor " m " Min."
+            h = int((s + 1800) / 3600); if (h < 36)  return "vor " h " Std."
+            d = int((s + 43200) / 86400); if (d < 14) return "vor " d " Tg."
+            if (d < 70)  return "vor " int((d + 3) / 7)   " Wo."
+            if (d < 365) return "vor " int((d + 15) / 30) " Mon."
+            return "vor " int((d + 182) / 365) " J."
+        }
+        {
+            iso = $2; sub(/ .*/, "", iso)
+            clock = iso; sub(/.*T/, "", clock); sub(/[.+-].*/, "", clock)
+            line = $2; sub(/^[^ ]+ /, "", line)
+            printf "%-12s %s  %s\n", rel($1 + 0), clock, line
+        }'
+}
