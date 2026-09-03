@@ -1,0 +1,105 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# x220-freqcap NACH /usr/local/sbin INSTALLIEREN + NOPASSWD-sudoers
+#
+# Root-Helper, der den CPU-Takt fuer thermisch heikle Lastphasen deckelt
+# (scaling_max_freq + intel_pstate/no_turbo). Wird von ~/.local/bin/pbuild
+# vor/nach jedem "podman build" aufgerufen. Hintergrund: stiller
+# thermischer Hard-Lock am 2026-09-03 ~14:15 beim Bau eines podman-Images,
+# THM0 94 C beim Notreboot - SECOND_BRAIN/x220-forensics-unplanned-restart/.
+#
+# Nur x220 (dort das Kuehlungsproblem). Auf anderen Hosts rendert dieses
+# Skript leer und tut nichts.
+#
+# /usr/local/sbin statt ~/.local/bin, weil die NOPASSWD-sudoers-Regel nur
+# auf eine root-eigene, nicht user-schreibbare Datei zeigen darf - sonst
+# waere sie eine Rechte-Eskalation. Aus demselben Grund steckt der Skript-
+# Inhalt komplett hier (kein separater Source-File), analog zum
+# wlan-monitor-Init in 51: chezmoi erkennt Aenderungen am Hash des
+# gerenderten Skriptinhalts, run_onchange re-installiert dann.
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.hostname "x220" -}}
+
+HELPER=/usr/local/sbin/x220-freqcap
+SUDOERS=/etc/sudoers.d/x220-freqcap
+PRINCIPAL="${USER:-$(id -un)}"
+TMP_HELPER="$(mktemp)"
+TMP_SUDOERS="$(mktemp)"
+trap 'rm -f "$TMP_HELPER" "$TMP_SUDOERS"' EXIT
+
+cat >"$TMP_HELPER" <<'HELPER_EOF'
+#!/bin/sh
+# x220-freqcap -- CPU-Takt fuer thermisch heikle Lastphasen deckeln/entdeckeln.
+#
+# INSTALLIERT VON chezmoi:
+#   .chezmoiscripts/run_onchange_after_52-install-x220-freqcap.sh.tmpl
+# NICHT hier editieren - Aenderungen im chezmoi-Template machen, dann
+# `chezmoi apply` re-installiert diese Datei.
+#
+# Root-Helper mit fester Schnittstelle, damit eine EXAKTE NOPASSWD-sudoers-
+# Regel moeglich ist (eine Pipeline laesst sich nicht sauber in sudoers
+# fassen). Schreibt ausschliesslich in feste, validierte sysfs-Pfade.
+#
+# Aufruf (durch ~/.local/bin/pbuild):
+#   x220-freqcap cap [kHz]   scaling_max_freq = kHz (Default 1600000), Turbo aus
+#   x220-freqcap restore     scaling_max_freq = Hardware-Max (Turbo), Turbo an
+#   x220-freqcap status      aktuelle Werte zeigen
+set -u
+
+NOTURBO=/sys/devices/system/cpu/intel_pstate/no_turbo
+CURMAX=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+CPUMAX=/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq   # schwankt mit no_turbo!
+CPUMIN=/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq
+
+r() { cat "$1" 2>/dev/null || echo "${2:-?}"; }
+
+set_max() {  # $1 = kHz; Kernel clamped selbst auf [cpuinfo_min, cpuinfo_max]
+  for p in /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq; do
+    if [ -w "$p" ]; then printf '%s\n' "$1" > "$p"; fi
+  done
+}
+set_turbo() {  # $1 = 0|1
+  if [ -w "$NOTURBO" ]; then printf '%s\n' "$1" > "$NOTURBO"; fi
+}
+
+case "${1:-}" in
+  cap)
+    khz=${2:-1600000}
+    case "$khz" in ''|*[!0-9]*) echo "x220-freqcap: ungueltige kHz: '$khz'" >&2; exit 2 ;; esac
+    min=$(r "$CPUMIN" 800000)
+    [ "$khz" -lt "$min" ] && khz=$min
+    set_max "$khz"
+    set_turbo 1
+    echo "x220-freqcap: max=$(r "$CURMAX")kHz turbo=aus"
+    ;;
+  restore)
+    set_turbo 0                 # ZUERST: hebt cpuinfo_max_freq zurueck auf den Turbo-Wert
+    set_max 99999999            # Kernel clamped auf den (jetzt vollen) Hardware-Max
+    echo "x220-freqcap: max=$(r "$CURMAX")kHz turbo=an"
+    ;;
+  status)
+    echo "cur_max=$(r "$CURMAX")kHz hw_max=$(r "$CPUMAX")kHz no_turbo=$(r "$NOTURBO" n/a)"
+    ;;
+  *)
+    echo "Nutzung: x220-freqcap {cap [kHz]|restore|status}" >&2
+    exit 1
+    ;;
+esac
+HELPER_EOF
+
+printf '%s ALL=(root) NOPASSWD: %s\n' "$PRINCIPAL" "$HELPER" >"$TMP_SUDOERS"
+
+# sudoers zuerst syntaktisch pruefen, dann atomar mit 0440 root:root platzieren
+sudo visudo -cf "$TMP_SUDOERS"
+sudo install -m 0755 -o root -g root "$TMP_HELPER"  "$HELPER"
+sudo install -m 0440 -o root -g root "$TMP_SUDOERS" "$SUDOERS"
+
+# Nach (Neu-)Installation bekannten Zustand herstellen, falls eine alte /
+# fehlerhafte Version den Takt gedeckelt hinterlassen hat.
+sudo "$HELPER" restore || true
+
+echo "==> $HELPER + $SUDOERS installiert/aktualisiert (Principal: $PRINCIPAL)."
+{{ end -}}
