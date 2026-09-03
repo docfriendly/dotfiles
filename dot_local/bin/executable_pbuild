@@ -1,0 +1,108 @@
+#!/bin/bash
+# pbuild -- "podman build" thermisch gedeckelt.
+#
+# Grund: Der ungeplante Freeze am 2026-09-03 ~14:15 passierte beim Bauen eines
+# podman-Images. Vollast auf beiden Kernen treibt den i5-2430M schneller hoch,
+# als die (altersschwache) Kuehlung abfuehren kann -> stiller Hard-Lock,
+# THM0 94 C beim Notreboot. Siehe x220-forensics-unplanned-restart/BERICHT.md.
+#
+# Fuer die Dauer des Builds:
+#   1. CPU-Takt deckeln (scaling_max_freq) + Turbo aus          [braucht sudo]
+#   2. Build auf einen Teil der HW-Threads pinnen (taskset) + nice
+#   3. Feinkoerniges Thermik-Log (alle 5 s) mitschreiben
+# Alles wird bei Ende/Abbruch/Fehler wieder zurueckgesetzt (EXIT-Trap).
+#
+# Nutzung:   pbuild [podman-build-Argumente ...]
+#   z. B.    pbuild -t meinimage:dev .
+#            pbuild --pull=newer -f Containerfile -t app:prod .
+#
+# Tuning per Env:
+#   PBUILD_MAXFREQ_KHZ   Takt-Deckel in kHz     (Default 1600000; Basis 2400000, min 800000)
+#   PBUILD_CPUS          taskset-Maske          (Default 0-2  = 3 von 4 Threads)
+#   PBUILD_NICE          nice-Level             (Default 15)
+#   PBUILD_NO_CAP=1      Takt-Deckel ueberspringen (nur taskset+nice)
+set -uo pipefail
+
+MAXFREQ_KHZ=${PBUILD_MAXFREQ_KHZ:-1600000}
+CPUS=${PBUILD_CPUS:-0-2}
+NICE=${PBUILD_NICE:-15}
+TLOG=/home/harry/Sync/vault/SECOND_BRAIN/x220-forensics-unplanned-restart/build-thermal.log
+
+NOTURBO=/sys/devices/system/cpu/intel_pstate/no_turbo
+CURMAX=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+FREQCAP=/usr/local/sbin/x220-freqcap   # Root-Helper; wenn vorhanden + NOPASSWD-Regel: kein Prompt
+
+hwmon_by_name() { local d; for d in /sys/class/hwmon/hwmon*; do
+  [ "$(cat "$d/name" 2>/dev/null)" = "$1" ] && { echo "$d"; return 0; }; done; return 1; }
+CT=$(hwmon_by_name coretemp || true)
+TP=$(hwmon_by_name thinkpad || true)
+
+log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >> "$TLOG"; }
+
+sampler() {
+  local pkg fan cur
+  while :; do
+    pkg=$(cat "${CT:-/nonexist}/temp1_input" 2>/dev/null); pkg=$(( ${pkg:-0} / 1000 ))
+    fan=$(cat "${TP:-/nonexist}/fan1_input" 2>/dev/null)
+    cur=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null)
+    log "PKG=${pkg}C FAN=${fan:-?}RPM curKHz=${cur:-?} LOAD=$(cut -d' ' -f1 /proc/loadavg)"
+    sleep 5
+  done
+}
+
+CAPPED=0
+restore() {
+  local rc=$?
+  [ -n "${SAMPLER_PID:-}" ] && kill "$SAMPLER_PID" 2>/dev/null
+  if [ "$CAPPED" = 1 ]; then
+    if [ -x "$FREQCAP" ]; then
+      sudo "$FREQCAP" restore >/dev/null 2>&1 && rok=1 || rok=0
+    else
+      sudo sh -c '
+        for p in /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq; do
+          m="${p%scaling_max_freq}cpuinfo_max_freq"; [ -r "$m" ] && cat "$m" > "$p"
+        done
+        [ -w "$1" ] && echo 0 > "$1"
+      ' _ "$NOTURBO" >/dev/null 2>&1 && rok=1 || rok=0
+    fi
+    if [ "${rok:-0}" = 1 ]; then
+      echo "pbuild: CPU-Takt/Turbo wiederhergestellt."; log "restore ok"
+    else
+      echo "pbuild: WARN - Wiederherstellen fehlgeschlagen. Manuell:  sudo $FREQCAP restore" >&2
+      log "restore FEHLGESCHLAGEN"
+    fi
+  fi
+  log "pbuild ende rc=$rc"
+  exit "$rc"
+}
+trap restore EXIT INT TERM
+
+command -v podman >/dev/null || { echo "pbuild: podman nicht gefunden." >&2; exit 127; }
+TASKSET=(); command -v taskset >/dev/null && TASKSET=(taskset -c "$CPUS") \
+  || echo "pbuild: WARN - taskset fehlt, kein CPU-Pinning." >&2
+
+mkdir -p "$(dirname "$TLOG")"
+log "=== pbuild start: podman build $* ==="
+
+if [ "${PBUILD_NO_CAP:-0}" != 1 ]; then
+  echo "pbuild: deckle CPU auf ${MAXFREQ_KHZ} kHz + Turbo aus ..."
+  if [ -x "$FREQCAP" ]; then
+    sudo "$FREQCAP" cap "$MAXFREQ_KHZ" && ok=1 || ok=0
+  else
+    sudo sh -c '
+      for p in /sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq; do echo "$1" > "$p"; done
+      [ -w "$2" ] && echo 1 > "$2"
+    ' _ "$MAXFREQ_KHZ" "$NOTURBO" && ok=1 || ok=0
+  fi
+  if [ "${ok:-0}" = 1 ]; then
+    CAPPED=1
+    log "cap: scaling_max_freq=${MAXFREQ_KHZ} no_turbo=1"
+    echo "pbuild: aktiv -> $(cat "$CURMAX" 2>/dev/null) kHz, Turbo aus. Reset automatisch bei Ende."
+  else
+    echo "pbuild: WARN - Takt-Deckel fehlgeschlagen, fahre nur mit taskset+nice fort." >&2
+  fi
+fi
+
+sampler & SAMPLER_PID=$!
+
+nice -n "$NICE" "${TASKSET[@]}" podman build "$@"
