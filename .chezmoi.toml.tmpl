@@ -3,6 +3,14 @@ encryption = "age"
 [age]
     passphrase = true
 
+[diff]
+    # run_after_*/run_onchange_*-Scripte zeigt `chezmoi diff` sonst bei jedem
+    # Aufruf komplett als "neue Datei" (siehe .chezmoiscripts/45,50: die laufen
+    # bewusst bei jedem Apply). Ohne scriptContents=false ersaeuft der Diff auf
+    # normale Dateien in wiederholtem Skript-Body. Die Zeile "Script wuerde
+    # laufen" bleibt sichtbar -- nur der Inhalt wird nicht mehr abgedruckt.
+    scriptContents = false
+
 [data]
     name  = {{ promptStringOnce . "name" "Git user.name" "Harry" | quote }}
     email = {{ promptStringOnce . "email" "Git user.email" "harald@humme.lt" | quote }}
