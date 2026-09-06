@@ -11,16 +11,24 @@
 # Boxen-Reste vom iPhone-Zweig hängen (Symptom: zwei Zeilen, aber
 # status-position bottom -- eine Mischung aus beiden Zweigen).
 
+# Guard gegen PiP-Wegwerf-Sessions (siehe tmux-config-popup/):
+# ein PiP-Popup macht innen ein echtes tmux attach-session auf eine "_pip"-
+# Session -> loest global den client-attached-Hook aus und wuerde hier sonst
+# die Kasten-Breiten (z.B. status-left) anhand der 4 Zeichen "_pip" statt der
+# echten Session neu berechnen -- global gesetzt, reisst dadurch die
+# Statuszeile der echten Session sichtbar auseinander.
+case "$(tmux display-message -p '#{session_name}')" in
+  _pip*) exit 0 ;;
+esac
+
 if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true" ]; then
   _iphone=true
   tmux set -g status-position top
   # iPhone: schmaler Touch-Screen -> feste, kompakte Innenbreite, Name hart
-  # auf 4 Zeichen + Ellipse gekürzt. 7 = 4 Zeichen Name + Ellipse + 2
-  # Flag-Zeichen (nicht nur 1: das aktuelle Fenster kann "*" (aktuell) UND
-  # "Z" (gezoomt) gleichzeitig tragen, "*Z" -- Fund 19.08.2026, beim Zoomen
-  # lief die Box mit vorherigem Wert 6 über. Analog zum +1-Puffer im
-  # Laptop-Zweig unten, nur dort war der Fixwert schon vorher zu klein.
-  _tab_w=7
+  # auf 4 Zeichen + Ellipse gekürzt. 8 = 4 Zeichen Name + Ellipse + 1 Flag
+  # ("*"/"-") + 2 Zellen fuer die Zoom-Lupe (die als Marker VOR dem Namen in
+  # der Box steht, s. _zoom_marker unten -- analog zum PiP-"▶").
+  _tab_w=8
   _name_trunc=4
   _scroll_speed=1
 else
@@ -31,10 +39,11 @@ else
   # ein einziger langer Ausreißer (z.B. "kartoffel-olivetin", 18 Zeichen)
   # zog die Box sonst für ALLE Fenster unnötig breit und STM/Chezmoi &Co.
   # wirkten dadurch nicht mehr zentriert (Fund 19.08.2026, zweite Runde).
-  # 6 Zeichen Name + Ellipse + 2 Flag-Zeichen ("*Z", s. iPhone-Kommentar
-  # oben) = 9 Innenbreite -- deckt kurze/mittlere Namen (STM, c-tmux,
+  # 10 Zeichen Name + Ellipse + 1 Flag ("*"/"-") + 2 Zellen fuer die
+  # Zoom-Lupe (Marker VOR dem Namen in der Box, s. _zoom_marker unten,
+  # analog zum PiP-"▶") = 13+1 -- deckt kurze/mittlere Namen (STM, c-tmux,
   # sh-STM, Chezmoi) exakt oder fast exakt ab, längere werden gekürzt.
-  _tab_w=13
+  _tab_w=14
   _name_trunc=10
   _scroll_speed=3
 fi
@@ -81,18 +90,45 @@ _center_m=$(( (_tab_w + 1) / 2 ))
 # ab Namenslänge >= center_m rutscht sie ohnehin bündig nach links, s.
 # Bericht). Beide Zeilen auf dieselbe Innenbreite gepolstert, damit die
 # Box-Ecken übereinanderstehen.
-tmux set -g window-status-format "┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐"
+# PiP-Verknuepfung (Fenster-Option @pip_target, siehe tmux-pip-toggle.sh):
+# ganze Box in einer eigenen Farbe einfaerben (statt nur ein leicht zu
+# uebersehendes Zeichen). Nur im NICHT-aktiven Zweig -- das aktive Fenster
+# soll weiterhin rot bleiben (Vorrang vor der Verknuepfungsfarbe), das "▶"
+# im Namen zeigt die Verknuepfung dort trotzdem an. Komma im verschachtelten
+# #[...] muss als "#," escaped werden (gleiches Muster wie window_offset_x/-y
+# weiter unten in dieser Datei).
+# "__unlinked__" ist der Sentinel-Wert aus tmux-pip-toggle.sh (Prefix+u):
+# bewusst getrennt, aber @pip_target ist trotzdem nicht leer -- ohne diese
+# Sonderbehandlung wuerde die Box faelschlich weiter cyan/▶ zeigen, obwohl
+# keine echte Verknuepfung mehr besteht.
+_pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=black],}}"
+
+tmux set -g window-status-format "${_pip_prefix}┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐#[default]"
 tmux set -g window-status-current-format "┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐"
 
 # Name-Ausdruck in Einzelschritten statt einer verschachtelten Zeile, damit
 # lesbar bleibt, was mit "claude-" passiert: Präfix weg -> auf _name_trunc
-# kürzen (mit Ellipse) -> Flags (*, Z, ...) anhängen, falls vorhanden.
+# kürzen (mit Ellipse) -> restliche Flags (*, -, #, !, ~, M) anhängen.
+#
+# Marker VOR dem Namen, in der Reihenfolge Zoom-Lupe, dann PiP-"▶":
+# - _zoom_marker: tmux haengt normalerweise ein hartkodiertes "Z" an
+#   #{window_flags} (Quelle window.c, window_printable_flags():
+#   flags[pos++]='Z' -- dafuer gibt es KEINE Option). Wir ziehen das "Z"
+#   per s/Z// aus den nachgestellten Flags heraus und zeigen stattdessen
+#   die Lupe 🔍 vorn -- genau wie das PiP-"▶", damit beide Marker
+#   zusammenstehen und sich nicht am Namensende ins Gehege kommen.
+#   Hinweis: auf dem cyan eingefaerbten PiP-Fenster ist das Emoji etwas
+#   kontraktarm (das "▶" ist Text, faerbt sich mit fg=black; 🔍 ist ein
+#   Farb-Emoji). Falls das stoert: 🔍 durch ein Text-Zeichen wie ⌕ ersetzen.
+# - _link_marker: PiP-Verknuepfung, "▶" nur wenn @pip_target echt gesetzt.
+_zoom_marker="#{?window_zoomed_flag,🔍,}"
 _name_no_prefix="#{s/^(claude-|PRE-)//:window_name}"
 _name_short="#{=/${_name_trunc}/…:${_name_no_prefix}}"
-_name_with_flags="${_name_short}#{?window_flags,#{window_flags},}"
-tmux set -g @window-status-format-row2 "└#{p${_tab_w}:${_name_with_flags}}┘"
+_link_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
+_name_with_flags="${_zoom_marker}${_link_marker}${_name_short}#{s/Z//:window_flags}"
+tmux set -g @window-status-format-row2 "${_pip_prefix}└#{p${_tab_w}:${_name_with_flags}}┘#[default]"
 tmux set -g @window-status-current-format-row2 "└#{p${_tab_w}:${_name_with_flags}}┘"
-unset _tab_w _name_trunc _center_m _name_no_prefix _name_short _name_with_flags
+unset _tab_w _name_trunc _center_m _name_no_prefix _name_short _name_with_flags _pip_prefix _link_marker _zoom_marker
 
 # Session-Name links (status-left) als Zweizeilen-Kasten: oben der Name,
 # unten die Gesamtzahl ALLER tmux-Sessions auf dem Server (nicht die

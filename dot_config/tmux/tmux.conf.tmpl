@@ -144,6 +144,22 @@ bind S run-shell 'tmux capture-pane -S - && tmux save-buffer ~/tmux-session-$(da
 # leeres, wartendes nvim-Fenster (empirisch verifiziert, 26.08.2026).
 bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - -t #{pane_id} > \"\$F\"; tmux display-popup -E -w 90% -h 90% -T 'tmux-Scrollback durchsuchen' \"nvim -c 'set nolist nonumber signcolumn=no' -c 'term cat \$F' -c 'au TermClose * ++once stopinsert'; rm -f \$F\""
 
+# Picture-in-Picture: read-only Live-Blick auf ein ANDERES tmux-Fenster in
+# einem Popup, ohne das aktuelle Fenster zu verlassen. Details/Bau-Protokoll:
+# ~/Sync/vault/SECOND_BRAIN/tmux-config-popup/BERICHT_tmux-config-popup.md
+#   Prefix+P      oeffnen/schliessen (3-stufige Zielsuche, siehe Skript)
+#   Prefix+Alt+P  Verknuepfung dieses Fensters bewusst loesen (naechstes
+#                 Prefix+P startet den Auswahl-Picker neu)
+#   Prefix+u      Read-only innerhalb des Popups umschalten. Bewusst OHNE
+#                 run-shell-Wrapper direkt an switch-client -r gebunden --
+#                 ein read-only-Client darf laut man tmux (attach-session)
+#                 NUR an detach-client/switch-client gebundene Tasten
+#                 ausfuehren, jedes run-shell wird kategorisch abgelehnt
+#                 ("Client is read only"), unabhaengig von dessen Inhalt.
+bind P   run-shell '{{ .chezmoi.homeDir }}/.config/tmux/tmux-pip-toggle.sh'
+bind M-P run-shell '{{ .chezmoi.homeDir }}/.config/tmux/tmux-pip-toggle.sh --unlink'
+bind u   switch-client -r
+
 # Termius (iPhone 12 mini) meldet sich per SSH-Env-Var IPHONE_CLIENT=true (siehe sshd_config AcceptEnv).
 # Bei jedem Client-Attach in die Session-Umgebung übernehmen und Statusleiste bei Bedarf nach oben legen,
 # weil Termius' eigene UI/Tastatur sonst die unterste Zeile verdeckt.
