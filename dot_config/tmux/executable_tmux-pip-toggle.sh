@@ -40,7 +40,7 @@ show_popup() {
   # empirisch geprueft, siehe tmux-config-popup/BERICHT_*.md). Ohne Fix zeigt
   # das Popup dann nur einen kleinen, oben links verankerten Ausschnitt mit
   # totem Rand drumherum, statt den Inhalt formatfuellend darzustellen.
-  local client_w client_h popup_w popup_h
+  local client_w client_h popup_w popup_h popup_x
   client_w="$(tmux display-message -p '#{client_width}')"
   client_h="$(tmux display-message -p '#{client_height}')"
   popup_w=$(( client_w * 50 / 100 ))
@@ -54,7 +54,14 @@ show_popup() {
   tmux set-option -t "$PIP_SESSION" pane-border-format \
     "#{?client_readonly,#[bg=red#,fg=white] LESEN  |  Prefix+u Schreiben  |  Prefix+d Exit ,#[bg=green#,fg=black] SCHREIBEN  |  Prefix+u Lesen  |  Prefix+d Exit }"
 
-  tmux display-popup -w "$popup_w" -h "$popup_h" -x R -y 0 -T "PiP: $target" -E \
+  # -x R (statt einer Zahl) fuer die Popup-Position ist hier absichtlich
+  # NICHT verwendet: sobald pane-border-status auf der Zielsession aktiv ist
+  # (s.o.), berechnet tmux 3.7b die "R"-Position falsch und verankert das
+  # Popup stattdessen links oben (Spalte 1) -- reproduzierbar leer getestet,
+  # verschwindet mit einer explizit berechneten Spaltenzahl. Deshalb hier
+  # der rechte Rand von Hand ausgerechnet statt tmux' eigener "R"-Symbolik.
+  popup_x=$(( client_w - popup_w ))
+  tmux display-popup -w "$popup_w" -h "$popup_h" -x "$popup_x" -y 0 -T "PiP: $target" -E \
     "tmux attach-session -r -t $PIP_SESSION"
 
   # resize-window setzt window-size als Nebeneffekt IMMER auf "manual" (auch
