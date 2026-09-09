@@ -72,6 +72,15 @@ show_popup() {
   # normal auto-groessenfaehig fuer kuenftige Attaches.
   tmux resize-window -t "$target" -A 2>/dev/null
   tmux set-window-option -t "$target" -u window-size 2>/dev/null
+
+  # pane-border-status/-format sind Fenster-Optionen, keine Session-Optionen.
+  # link-window haengt KEINE Kopie des Fensters in _pip ein, sondern denselben
+  # Fenster-Objektverweis wie in der Heimat-Session -- das oben gesetzte
+  # pane-border-status landet also direkt auf dem echten Fenster und bliebe
+  # ohne diesen Rueckbau dauerhaft auch ausserhalb des Popups sichtbar.
+  tmux set-window-option -t "$target" -u pane-border-status 2>/dev/null
+  tmux set-window-option -t "$target" -u pane-border-format 2>/dev/null
+
   tmux kill-session -t "$PIP_SESSION" 2>/dev/null
 }
 
