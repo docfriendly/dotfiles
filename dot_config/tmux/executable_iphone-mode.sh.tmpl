@@ -212,8 +212,18 @@ else
   _status_right_w=40
   _status_right_trunc=$((_status_right_w - 1))
   tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{p${_status_right_w}:#{=/${_status_right_trunc}/…:#{pane_title}}} #[fg=black,bg=yellow,bold]┌W┐#[default]"
-  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{=/${_status_right_trunc}/…:#{l:%d-%b-%y %H:%M}}} #[fg=black,bg=yellow,bold]└▾┘#[default]"
-  unset _status_right_w _status_right_trunc
+  # Datum/Uhrzeit in Zeile 2 mittig im _status_right_w-Feld statt linksbuendig
+  # (Fund 12.09.2026): "%d-%b-%y %H:%M" ist IMMER exakt 15 Zeichen lang (2+1+3+1+2
+  # + 1+2+1+2) -- auch im deutschen Locale sind alle Monatskuerzel (Jan...Dez,
+  # inkl. "Mär") genau 3 Zeichen. Deshalb hier ohne Kompromiss-M wie bei den
+  # variabel langen Fenster-Tabs (s. _center_m oben) exakt zentrierbar:
+  # #{p-M:...} polstert zuerst rechtsbuendig auf M, #{pN:...} danach
+  # linksbuendig auf die Gesamtbreite N -- ergibt bei fester Inhaltslaenge L
+  # echte Zentrierung (Rundungsrest landet rechts).
+  _date_len=15
+  _date_center_m=$(( (_status_right_w + _date_len) / 2 ))
+  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{p-${_date_center_m}:#{=/${_status_right_trunc}/…:#{l:%d-%b-%y %H:%M}}}} #[fg=black,bg=yellow,bold]└▾┘#[default]"
+  unset _status_right_w _status_right_trunc _date_len _date_center_m
 fi
 
 unset _iphone
