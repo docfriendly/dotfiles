@@ -195,10 +195,25 @@ else
   # Zeilen dasselbe Budget und bleibt synchron. 40 ist grosszuegig (fast
   # doppelt so breit wie der frueher verworfene Wert 21, s. Kommentar in
   # tmux.conf.tmpl) -- im Alltag wird praktisch nie gekuerzt.
+  #
+  # NACHTRAG 12.09.2026 (zweiter Fund, noch am selben Tag): #{=/N/…:...}
+  # liefert bei TATSAECHLICHEM Kuerzen N ZEICHEN INHALT PLUS die Ellipse
+  # OBENDRAUF -- also N+1 Zeichen, nicht N (empirisch verifiziert mit
+  # tmux display-message, tmux 3.7b, reproduzierbar auch ganz ohne
+  # Sonderzeichen/Emoji im Inhalt -- keine Breiten-Mehrdeutigkeit, einfach
+  # ein Off-by-one in der Modifier-Semantik). Bei kurzen Titeln (keine
+  # echte Kuerzung) faellt das nicht auf; sobald ein Titel die Grenze
+  # WIRKLICH ueberschreitet, wird status-right dieser Zeile 1 Zeichen
+  # breiter als das p${_status_right_w} der anderen Zeile -- exakt der
+  # Riss bei langen Claude-Code-Fenstertiteln (Symptom: die Fenster-Tab-
+  # Liste einer Zeile frisst dadurch 1 Zeichen ihrer eigenen Randbox aus).
+  # Fix: die Ellipsenlaenge beim Kuerz-Ziel abziehen, das Polster-Ziel
+  # bleibt bei der vollen Breite.
   _status_right_w=40
-  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{p${_status_right_w}:#{=/${_status_right_w}/…:#{pane_title}}} #[fg=black,bg=yellow,bold]┌W┐#[default]"
-  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{=/${_status_right_w}/…:#{l:%d-%b-%y %H:%M}}} #[fg=black,bg=yellow,bold]└▾┘#[default]"
-  unset _status_right_w
+  _status_right_trunc=$((_status_right_w - 1))
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{p${_status_right_w}:#{=/${_status_right_trunc}/…:#{pane_title}}} #[fg=black,bg=yellow,bold]┌W┐#[default]"
+  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{=/${_status_right_trunc}/…:#{l:%d-%b-%y %H:%M}}} #[fg=black,bg=yellow,bold]└▾┘#[default]"
+  unset _status_right_w _status_right_trunc
 fi
 
 unset _iphone
