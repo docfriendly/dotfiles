@@ -166,17 +166,39 @@ if $_iphone; then
   tmux set -g @status-right-row2 "#[fg=black,bg=yellow,bold]└▾┘#[default]"
 else
   # Datum+Uhrzeit stehen in Zeile 2, Zeile 1 hat dadurch Platz für einen
-  # längeren Pane-Titel. Titel unbeschnitten/ungepolstert -- nimmt genau so viel Platz ein wie
-  # er braucht, direkt (rechtsbündig) vor dem Knopf. Kein Breitenabgleich
-  # mit Zeile 2 nötig: status-right wird von tmux ohnehin bündig gegen den
-  # rechten Bildschirmrand positioniert (align=right in status-format),
-  # unabhängig von der Textlänge davor -- die Knöpfe "┌W┐"/"└▾┘" landen
-  # dadurch in beiden Zeilen an derselben Spalte, auch wenn Titel- und
-  # Datum/Uhrzeit-Text unterschiedlich lang sind. Einzige Grenze:
-  # status-right-length (s. tmux.conf) -- bei SEHR langen Titeln wird ab
-  # dort weiterhin von rechts (inkl. Knopf!) abgeschnitten.
-  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{pane_title} #[fg=black,bg=yellow,bold]┌W┐#[default]"
-  tmux set -g @status-right-row2 "%d-%b-%y %H:%M #[fg=black,bg=yellow,bold]└▾┘#[default]"
+  # längeren Pane-Titel.
+  #
+  # FRÜHER war der Titel hier unbeschnitten/ungepolstert, in der Annahme,
+  # status-right werde von tmux ohnehin bündig gegen den rechten Rand
+  # positioniert (align=right in status-format) und die Knöpfe landeten
+  # deshalb in beiden Zeilen an derselben Spalte -- das stimmt fuer die
+  # KNOEPFE, aber NICHT fuer den Fenster-Tab-Bereich davor: status-format[0]
+  # (oben) und status-format[1]/unten werden von tmux als voellig
+  # UNABHAENGIGE Zeilen layoutet, jede mit ihrem eigenen Rest-Budget fuer
+  # die Fenster-Tab-Liste = Terminalbreite minus status-left minus
+  # status-right DIESER Zeile. Solange alles hineinpasst (wenige Fenster),
+  # macht das keinen Unterschied. Passen nicht mehr alle Fenster-Boxen
+  # hinein (z.B. Session AGENTS mit vielen Fenstern), kuerzt/scrollt tmux
+  # die Liste PRO ZEILE einzeln -- und weil #{pane_title} (oben) und
+  # "%d-%b-%y %H:%M" (unten) unterschiedlich lang sind, bekommen beide
+  # Zeilen ein unterschiedliches Budget und zeigen dadurch verschiedene
+  # Fenster -- die Doppel-Box reisst optisch auseinander (Fund 12.09.2026).
+  #
+  # Fix: beide Seiten auf dieselbe LITERALE (tmux kann Breitenangaben in
+  # #{pN:}/#{=N:} nicht dynamisch aus einer anderen Option lesen -- Test
+  # 12.09.2026: #{p#{pane_width}:...} ist ungueltig) aber grosszuegig
+  # gewaehlte Breite polstern: #{=/N/…:...} kuerzt (mit Ellipse) nur, wenn
+  # der Titel die Grenze WIRKLICH ueberschreitet, #{pN:...} polstert
+  # kuerzere Inhalte (Titel wie Datum) auf dieselbe Breite auf. Damit ist
+  # status-right in beiden Zeilen IMMER exakt gleich lang, unabhaengig vom
+  # tatsaechlichen Titelinhalt -- die Fenster-Tab-Liste bekommt in beiden
+  # Zeilen dasselbe Budget und bleibt synchron. 40 ist grosszuegig (fast
+  # doppelt so breit wie der frueher verworfene Wert 21, s. Kommentar in
+  # tmux.conf.tmpl) -- im Alltag wird praktisch nie gekuerzt.
+  _status_right_w=40
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{p${_status_right_w}:#{=/${_status_right_w}/…:#{pane_title}}} #[fg=black,bg=yellow,bold]┌W┐#[default]"
+  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{=/${_status_right_w}/…:#{l:%d-%b-%y %H:%M}}} #[fg=black,bg=yellow,bold]└▾┘#[default]"
+  unset _status_right_w
 fi
 
 unset _iphone

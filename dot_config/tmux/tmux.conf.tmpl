@@ -37,9 +37,12 @@ set -g window-status-style bg=yellow
 set -g window-status-current-style bg=red,fg=white
 
 # tmux' Default (40) reicht am Laptop nicht mehr: seit iphone-mode.sh den
-# Pane-Titel dort auf feste Breite 21 auffüllt, ist der Text vor dem
-# W-Knopf konstant 40 Zeichen lang -- der Knopf selbst (3 weitere Zeichen)
-# wurde dadurch komplett abgeschnitten (Fund 19.08.2026).
+# Pane-Titel/status-right dort auf feste Breite 40 (+ Leerzeichen) polstert
+# (Fund 12.09.2026 -- vorher fixe Breite 21, urspruenglicher Fund 19.08.2026),
+# ist der Text vor dem W-Knopf konstant ~41 Zeichen lang -- der Knopf selbst
+# (3 weitere Zeichen) wuerde bei zu knappem Wert hier abgeschnitten. 50
+# laesst noch etwas Luft fuer den continuum-Save-Indikator und den
+# window_bigger-Praefix.
 set -g status-right-length 50
 
 # Plugins nach ~/.config/tmux/plugins statt ins alte ~/.tmux ablegen
