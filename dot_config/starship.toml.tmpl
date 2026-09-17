@@ -1,8 +1,24 @@
+{{- /*
+Heimnetz-IP der Podman-Registry gehoert NICHT in dieses oeffentlich
+gespiegelte Repo (gleiche Quelle wie dot_config/containers/registries.conf.tmpl:
+~/Sync/vault/containers/<hostname>/registries.conf, Syncthing-Vault, nicht
+versioniert). Existiert die Vault-Datei nicht oder enthaelt keine
+`location = "..."`-Zeile, wird custom.podman_login komplett weggelassen statt
+mit leerer/kaputter Adresse zu rendern.
+*/}}
+{{- $registryLocation := "" -}}
+{{- $vaultRegistriesFile := joinPath .chezmoi.homeDir "Sync/vault/containers" .chezmoi.hostname "registries.conf" -}}
+{{- if stat $vaultRegistriesFile -}}
+{{- $match := output "cat" $vaultRegistriesFile | regexFind `location = "[^"]+"` -}}
+{{- if $match -}}
+{{- $registryLocation = $match | trimPrefix `location = "` | trimSuffix `"` -}}
+{{- end -}}
+{{- end -}}
 "$schema" = 'https://starship.rs/config-schema.json'
 
 format = """\
 ${custom.privgroups}${custom.sudo_cache}$all\
-${custom.db_migrate}$fill$ruby$custom\
+${custom.db_migrate}{{ if $registryLocation }}${custom.podman_login}{{ end }}$fill$ruby$custom\
 $line_break\
 ${custom.shlvl}$jobs$character"""
 
@@ -244,6 +260,22 @@ symbol = " "
   when = 'grep -q "^\- \[x\]" /home/harry/Projekte/code/speech_therapy_manager/MDFILES.d/PROMPT_TODO.md 2>/dev/null'                                                                                                                                                     
   style = "bold yellow"                                                                                                                                                                                                                                                  
   format = "[$output]($style) "
+
+# Warnt, solange kein Podman-Login für die lokale Registry vorliegt. Das
+# Auth-File liegt unter $XDG_RUNTIME_DIR/containers/auth.json - tmpfs, wird
+# bei jedem Neustart des Laptop-Servers geleert, danach schlägt jeder Pull
+# fehl bis `podman login` erneut läuft. `--get-login` fragt das Auth-File
+# direkt ab (ground truth, keine eigene Marker-Datei) und ist mit ~40ms
+# schnell genug für den Prompt.
+{{- if $registryLocation }}
+[custom.podman_login]
+description = "Warnt, wenn kein Podman-Login für die lokale Registry vorliegt (Auth-File auf tmpfs, geht bei jedem Reboot verloren)"
+command = 'echo "⚠ podman login!"'
+when = '! podman login --get-login {{ $registryLocation }} >/dev/null 2>&1'
+style = "bold yellow"
+format = "[$output]($style) "
+shell = ["bash", "--noprofile", "--norc"]
+{{- end }}
 
 # Warnt, wenn harry auf diesem Host Mitglied einer der überwachten
 # privilegierten Gruppen ist (adm/disk/docker - de-facto root-Äquivalent bzw.
