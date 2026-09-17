@@ -15,10 +15,21 @@ set -uo pipefail
 # Ausfall nachvollziehbar ist UND ein reiner Timing-Race sich von selbst
 # behebt.
 
+# Kritisch: der Server selbst erbt diese PATH in seine eigene Prozessumgebung.
+# tpm/continuum spawnen ihre Ladeskripte per "run-shell" darin und rufen
+# "tmux" dort ohne vollen Pfad auf -- ohne linuxbrew vorn in der PATH landen
+# sie beim apt-tmux (3.5a) statt beim Server-Binary (3.7b), das Protokoll
+# passt dann nicht mehr und tpm laedt lautlos keine Plugins (kein
+# resurrect/continuum). Fund vom 03.09.2026, dieser Fix ging beim naechsten
+# "chezmoi apply" verloren, weil er damals nur auf der Platte, nicht in der
+# chezmoi-Quelle landete -- diesmal per "chezmoi add" nachgezogen.
+export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+
 TMUX_BIN="/home/linuxbrew/.linuxbrew/bin/tmux"
 LOG="$HOME/.cache/tmux-autostart.log"
 MAX_TRIES=3
 RETRY_DELAY=30
+PLUGIN_WAIT=10
 
 mkdir -p "$(dirname "$LOG")"
 
@@ -26,7 +37,16 @@ log() {
 	printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >>"$LOG"
 }
 
-log "Autostart getriggert (PID $$, TMUX_BIN=$TMUX_BIN)"
+check_plugins_loaded() {
+	sleep "$PLUGIN_WAIT"
+	if "$TMUX_BIN" list-keys 2>/dev/null | grep -q resurrect; then
+		log "Plugins geladen (resurrect-Keybinding vorhanden)"
+	else
+		log "WARNUNG: Plugins NICHT geladen (resurrect-Keybinding fehlt -- PATH/tpm pruefen)"
+	fi
+}
+
+log "Autostart getriggert (PID $$, TMUX_BIN=$TMUX_BIN, PATH=$PATH)"
 
 for attempt in $(seq 1 "$MAX_TRIES"); do
 	if "$TMUX_BIN" has-session -t main 2>/dev/null; then
@@ -36,6 +56,7 @@ for attempt in $(seq 1 "$MAX_TRIES"); do
 
 	if err=$("$TMUX_BIN" new-session -d -s main 2>&1); then
 		log "Versuch $attempt: erfolgreich gestartet"
+		check_plugins_loaded
 		exit 0
 	fi
 
