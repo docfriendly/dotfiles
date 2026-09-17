@@ -587,6 +587,390 @@ claudegrep() {
     rm -f "$titlemap" "$filelist"
 }
 
+# mangrep [--all] [--lines N] [--refresh] <suchbegriff>: durchsucht alle
+# Handbuchseiten im aktuellen `manpath` (inkl. Übersetzungen, z.B.
+# .../de/man1/...) im gerenderten Klartext (nicht im rohen troff-Quelltext
+# wie `man -K`) und zeigt Treffer farbig hervorgehoben, gruppiert nach Seite.
+# Wie `claudegrep` zweistufig: ein billiger Vorfilter sortiert die riesige
+# Masse an Seiten ohne Treffer aus, BEVOR für die wenigen Kandidaten
+# überhaupt `groff` gerendert wird (das ist pro Seite der mit Abstand
+# teuerste Schritt).
+# Der Vorfilter selbst braucht aber einen eigenen Cache: ~10.000 Handbuch-
+# seiten liegen alle gzip-komprimiert vor (kein Volltext-Index existiert
+# irgendwo auf dem System -- mandb indiziert nur die Kurzbeschreibungen für
+# `apropos`, nicht den Seiteninhalt; das ist derselbe Grund, warum auch
+# `man -K` bei jedem Aufruf brute-force neu entpackt). Direktes `zgrep` pro
+# Suche kostet einen `gzip`-Unterprozess PRO Datei (~20s für alle Seiten,
+# gemessen, dominiert von Prozessstart-Overhead, nicht von der Textsuche
+# selbst) -- deshalb wird einmalig ein Klartext-Spiegel unter
+# ~/.cache/mangrep/ angelegt (nur entpackt, nicht gerendert -- das Rendern
+# bleibt weiter Sache des zweiten Schritts, pro Kandidat). Danach läuft der
+# Vorfilter als EIN einzelner `grep -r`-Prozess über den Cache (kein Fork
+# pro Datei mehr) -- gemessen ~0,1s statt ~15-20s. Cache-Aufbau selbst
+# parallelisiert über alle Kerne, einmalig ~15s. Der Cache wird automatisch
+# neu gebaut, wenn eine Man-Seiten-Verzeichnis (z.B. nach `apt install`)
+# jünger als der letzte Cache-Aufbau ist (mtime-Vergleich auf
+# Verzeichnisebene -- ein neuer Verzeichniseintrag aktualisiert die mtime
+# des Elternverzeichnisses, das reicht als Signal ohne alle 10.000 Dateien
+# einzeln per stat abzufragen); --refresh erzwingt den Neubau von Hand.
+# Anders als bei `claudegrep` gibt es hier keine jq-Zustandsmaschine über
+# mehrere Records -- eine Handbuchseite steht für sich, es muss nichts über
+# Aufrufe hinweg gemerkt werden (kein Sessionwechsel/Datumszeile-Äquivalent),
+# daher ein simpler jq-Aufruf pro Kandidatendatei statt eines "foreach" über
+# alle. Wie bei claudegrep wird pro Treffer nur das ERSTE Vorkommen im
+# Fenster gezeigt (nicht alle) -- für die komplette Seite mit allen
+# Vorkommen hervorgehoben: --all.
+# Caveat (roh vs. gerendert): der Vorfilter (und damit auch der Cache) kann
+# sehr selten einen Treffer verpassen, den der gerenderte Text hätte -- wenn
+# der Suchbegriff im troff-Quelltext durch eine Formatierungs-Escape-
+# Sequenz mitten im Wort zerrissen ist (z.B. \fBpass\fRword -> gerendert
+# "password", roh nie als ein zusammenhängender String). Bewusst in Kauf
+# genommen statt dagegen zu bauen, siehe Diskussion zu `man -K`, das
+# dasselbe Problem hat.
+# Zweiter Aufrufmodus (17.09.): `mangrep <kommando> <muster>` (zwei
+# Positionsargumente statt einem) durchsucht NUR die eine Seite, die auch
+# `man <kommando>` öffnen würde -- Ersatz für `man <kommando> | grep -A N
+# -e <muster>`, aber mit Highlighting/Fenster wie sonst und ALLEN
+# Fundstellen (nicht nur der ersten). Braucht keinen Cache/Vorfilter, `man
+# -w` löst die Datei direkt auf.
+# Ist der Korpus-Cache veraltet/fehlt und `rg` ist installiert, blockiert
+# die aktuelle Suche nicht mehr auf den vollen ~15-20s Neubau: `rg -z`
+# durchsucht die .gz-Dateien live (~4s, ohne Cache), der Neubau läuft
+# parallel im Hintergrund für den nächsten Aufruf.
+# Rendert eine einzelne Manpage-Datei ($1 = Pfad) und druckt sie farbig
+# hervorgehoben -- gemeinsamer Kern für den Korpus-weiten Suchmodus
+# (Vorfilter-Loop in mangrep()) UND den gezielten Zwei-Argument-Modus
+# (mangrep <kommando> <muster>). Liest pattern/all/mode/cols/avail/
+# lines_opt/c_* über Bashs dynamisches Scoping aus dem Aufrufer (mangrep())
+# -- kein Subshell dazwischen, daher sind dessen `local`-Variablen hier
+# direkt sichtbar, ohne sie einzeln durchreichen zu müssen.
+# rc 0 = etwas ausgegeben, rc 1 = kein Treffer im gerenderten Text (siehe
+# Roh-vs-gerendert-Caveat oben an mangrep()).
+_mangrep_show_page() {
+    local f="$1"
+
+    # Anzeige-Name/-Abschnitt aus dem Dateinamen ableiten: "ls.1.gz" ->
+    # Name "ls", Abschnitt "1". Erst die Kompressions-Endung weg, dann ist
+    # die letzte verbleibende Punkt-Komponente die Abschnittsnummer.
+    local base="${f##*/}"
+    base="${base%.gz}"; base="${base%.bz2}"; base="${base%.xz}"; base="${base%.Z}"
+    local section="${base##*.}"
+    local name="${base%.*}"
+
+    # `man -l <datei>`: rendert eine bestimmte Datei direkt, unabhängig von
+    # manpath-Suche/Abschnitts-Priorität. --pager=cat erzwingt Klartext-
+    # Ausgabe ohne Pager (auch wenn PAGER/MANPAGER interaktiv gesetzt ist);
+    # `col -bx` entfernt die Backspace-Fettung/Unterstreichung des Groff-
+    # Terminal-Outputs, die sonst als rohe Steuerzeichen im Text stünden.
+    local renderedfile
+    renderedfile=$(mktemp)
+    man --pager=cat -l "$f" 2>/dev/null | col -bx 2>/dev/null > "$renderedfile"
+    if [ ! -s "$renderedfile" ]; then
+        rm -f "$renderedfile"
+        return 1
+    fi
+
+    # Direkt aus einer Datei lesen statt aus einer Bash-Variable: manche
+    # Seiten (generierte Referenzen wie systemd.exec, smb.conf) werden
+    # gerendert >130.000 Zeichen groß -- als jq --arg auf der Kommandozeile
+    # reißt das MAX_ARG_STRLEN (Kernel-Limit PRO Argument, 32 Pages =
+    # 128 KiB, UNABHÄNGIG vom größeren Gesamt-ARG_MAX) und scheitert mit
+    # "Argument list too long", empirisch ab ~140.000 Zeichen reproduziert.
+    # --rawfile liest die Datei direkt ein, ganz ohne argv -- kein Limit.
+    local block
+    block=$(jq -n -r \
+        --arg p "$pattern" --rawfile text "$renderedfile" \
+        --arg name "$name" --arg section "$section" --arg path "$f" \
+        --arg all "$all" --arg mode "$mode" \
+        --argjson cols "$cols" --argjson avail "$avail" --argjson lines "$lines_opt" \
+        --arg c_loc "$c_loc" --arg c_dim "$c_dim" --arg c_hit "$c_hit" --arg c_off "$c_off" '
+        def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
+        def wrap($width):
+          (. | split(" ") | map(select(. != ""))) as $words
+          | reduce $words[] as $w
+              ([""];
+                (if .[-1] == "" then $w else .[-1] + " " + $w end) as $cand
+                | if (.[-1] == "" or ($cand | length) <= $width)
+                  then .[:-1] + [$cand]
+                  else . + [$w]
+                  end);
+        def window($mt):
+          ($avail * $lines) as $budget
+          | ($text | length) as $tlen
+          | ((($budget - 2 - $mt.length) / 2 | floor) as $h | if $h > 0 then $h else 0 end) as $half
+          | (if ($mt.offset - $half) > 0 then ($mt.offset - $half) else 0 end) as $start
+          | (if ($mt.offset + $mt.length + $half) < $tlen then ($mt.offset + $mt.length + $half) else $tlen end) as $end
+          | ($text[$start:$end] | gsub("\n"; " ")) as $win
+          | ($win | wrap($avail - 1)) as $wraplines
+          | ($wraplines | length) as $wc
+          | ($wraplines[0:$lines]) as $kept
+          | ($wc > $lines) as $wraptruncated
+          | ($kept | map(highlight(.)) | join("\n  ")) as $hwindow
+          | (if $start > 0 then "…" else "" end) as $pre
+          | (if ($end < $tlen) or $wraptruncated then "…" else "" end) as $post
+          | "\($pre)\($hwindow)\($post)";
+        # select: falls der Vorfilter-Treffer nur im rohen troff-Text
+        # existierte (Caveat oben an mangrep()), bricht hier still ab statt
+        # einen leeren/falschen Block auszugeben.
+        select($text | test($p; "i")) |
+        "\($c_loc)\($name)(\($section))\($c_off) \($c_dim)(\($path))\($c_off)" as $header
+        | ("═" * ([$cols, 60] | min)) as $rule
+        | (if $all == "1" then
+             highlight($text)
+           elif $mode == "page" then
+             # Zwei-Argument-Modus: ALLE Treffer auf der einen Seite zeigen
+             # (wie `grep -A N`, mehrere Fundstellen), nicht nur die erste
+             # wie im Korpus-weiten Suchmodus unten.
+             ([$text | match($p; "gi")] | map(window(.)) | join("\n  \($c_dim)·\($c_off)\n  "))
+           else
+             window($text | match($p; "i"))
+           end) as $body
+        | "\($header)\n\($c_dim)\($rule)\($c_off)\n  \($body)"
+    ')
+    rm -f "$renderedfile"
+    if [ -n "$block" ]; then
+        printf '%s\n\n' "$block"
+        return 0
+    fi
+    return 1
+}
+
+mangrep() {
+    local all=0
+    local lines_opt=1
+    local refresh=0
+    local args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --all)
+                all=1
+                shift
+                ;;
+            --lines)
+                lines_opt="$2"
+                shift 2
+                ;;
+            --refresh)
+                refresh=1
+                shift
+                ;;
+            --)
+                # Ende der mangrep-eigenen Flags (GNU-Konvention). Ohne
+                # diesen Fall landete ein einzelnes "--" wie jedes andere
+                # unbekannte Token im *)-Zweig in $args -- bei z.B.
+                # `mangrep -- --gen-random` wurde dann args[0]="--" (statt
+                # "--gen-random") als Suchmuster genommen, was praktisch
+                # jede Manpage mit Optionslisten trifft. Alles nach "--"
+                # zählt jetzt unverändert als Positionsargument, auch wenn
+                # es wie eine mangrep-Flag aussieht.
+                shift
+                while [ $# -gt 0 ]; do
+                    args+=("$1")
+                    shift
+                done
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    # Ein Positionsargument: Volltextsuche über alle Manpages (bisheriges
+    # Verhalten, mode="search"). Zwei: `mangrep <kommando> <muster>` --
+    # NUR diese eine Seite durchsuchen, wie `man <kommando> | grep -e
+    # <muster>`, aber ohne Pipe-Tipparbeit und mit demselben Highlighting.
+    local cmd="" mode="search"
+    case "${#args[@]}" in
+        1) : ;;
+        2) cmd="${args[0]}"; args=("${args[1]}"); mode="page" ;;
+        *)
+            echo "Verwendung: mangrep [--all] [--lines N] [--refresh] <Suchbegriff>" >&2
+            echo "        oder: mangrep [--all] [--lines N] <Kommando> <Suchbegriff>  (nur diese eine Seite)" >&2
+            return 1
+            ;;
+    esac
+    case "$lines_opt" in
+        ''|*[!0-9]*|0)
+            echo "Verwendung: mangrep [--all] [--lines N] [--refresh] <Suchbegriff>  (N muss eine positive Zahl sein)" >&2
+            return 1
+            ;;
+    esac
+    local pattern="${args[0]}"
+    local c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+
+    local cols
+    cols=$(tput cols 2>/dev/null </dev/tty)
+    [ -n "$cols" ] || cols=80
+    local avail=$((cols - 2))
+    [ "$avail" -gt 10 ] || avail=10
+
+    # Muster-Gültigkeit VORAB an einem leeren Dummy-Input prüfen, statt sich
+    # erst auf den Vorfilter unten zu verlassen -- so bricht ein kaputtes
+    # PCRE-Muster sofort ab, bevor überhaupt Cache/Seite angefasst wird.
+    # rc 1 = Muster gültig, im leeren Input erwartungsgemäß kein Treffer;
+    # rc >1 = ungültiges PCRE-Muster.
+    printf '' | grep -P -- "$pattern" >/dev/null 2>&1
+    if [ "$?" -gt 1 ]; then
+        echo "mangrep: ungültiges Suchmuster (PCRE): $pattern" >&2
+        return 1
+    fi
+
+    # Zwei-Argument-Modus: `man -w` löst GENAU die Seite auf, die auch
+    # `man <kommando>` öffnen würde (inkl. Locale-/Abschnitts-Priorität) --
+    # kein Korpus-weiter Cache/Vorfilter nötig, nur diese eine Datei
+    # rendern und durchsuchen (deshalb auch kein manpath/manroots-Aufbau
+    # unten, der ist nur für den Suchmodus relevant).
+    if [ "$mode" = page ]; then
+        local pagepath
+        pagepath=$(man -w "$cmd" 2>/dev/null | head -1)
+        if [ -z "$pagepath" ]; then
+            echo "mangrep: keine Handbuchseite gefunden für: $cmd" >&2
+            return 1
+        fi
+        _mangrep_show_page "$pagepath"
+        return
+    fi
+
+    # Alle manpath-Wurzeln einsammeln (nicht nur /usr/share/man -- auf
+    # diesem System z.B. auch linuxbrew). Jede Wurzel enthält direkt
+    # man1/man2/... sowie Übersetzungs-Unterordner wie de/man1/...; -type f
+    # rekursiv erfasst beide Ebenen, ohne dass die Verzeichnisstruktur
+    # bekannt sein müsste.
+    local manroots=()
+    while IFS= read -r d; do
+        [ -d "$d" ] && manroots+=("$d")
+    done < <(manpath 2>/dev/null | tr ':' '\n')
+    if [ "${#manroots[@]}" -eq 0 ]; then
+        echo "mangrep: keine Manpage-Verzeichnisse gefunden (manpath leer)" >&2
+        return 1
+    fi
+
+    # Klartext-Cache: Spiegel aller Manpage-Quellen (nur entpackt, nicht
+    # gerendert) unter ~/.cache/mangrep/<Originalpfad ohne führenden
+    # Slash>.txt. Neu gebaut bei --refresh, fehlendem Cache, oder wenn
+    # irgendein Man-Verzeichnis (Tiefe <=2, deckt sowohl .../man1/ direkt
+    # als auch .../de/man1/ ab) jünger ist als der letzte Aufbau.
+    #
+    # troff-Quelle escaped literale Bindestriche in Optionsnamen fast immer
+    # als "\-" (verhindert Trennung, korrekter Minus-Glyph beim Rendern) --
+    # z.B. steht in gpg.1 wörtlich ".B \-\-gen\-random", nicht "--gen-random".
+    # Ohne Normalisierung findet der Vorfilter unten also z.B. "--gen-random"
+    # NIE, obwohl `man gpg | grep` es zeigt (man/groff löst die Escapes beim
+    # Rendern auf). Deshalb "\-" -> "-" direkt beim Cache-Aufbau glätten --
+    # billiger sed-Durchlauf, der eigentliche Render-Schritt für Kandidaten
+    # bleibt der echte `man`-Renderer und ist davon unberührt.
+    local cachedir="${XDG_CACHE_HOME:-$HOME/.cache}/mangrep"
+    local marker="$cachedir/.built"
+    local need_build=0
+    if [ "$refresh" -eq 1 ] || [ ! -f "$marker" ]; then
+        need_build=1
+    elif find "${manroots[@]}" -maxdepth 2 -type d -newer "$marker" -print -quit 2>/dev/null | grep -q .; then
+        need_build=1
+    fi
+
+    local filelist
+    filelist=$(mktemp)
+    if [ "$need_build" -eq 1 ] && command -v rg >/dev/null 2>&1; then
+        # Cache fehlt/ist veraltet, `rg` ist da: statt die aktuelle Suche
+        # ~15-20s auf den vollen Neubau warten zu lassen, sofort live mit
+        # `rg -z` direkt auf den .gz-Dateien suchen -- kein Cache nötig,
+        # ~4s über den ganzen Korpus (17.09. per `time` gemessen: klar
+        # langsamer als der warme Cache, aber für einen einzelnen Aufruf
+        # tolerabel). Der Cache-Aufbau läuft parallel im Hintergrund weiter
+        # (disown, falls die Shell vor Fertigstellung beendet wird), damit
+        # der NÄCHSTE Aufruf wieder den schnellen Pfad nimmt.
+        #
+        # Lockverzeichnis NEBEN (nicht IN) $cachedir, weil der Hintergrund-
+        # Build $cachedir selbst per rm -rf wegwirft, bevor er ihn neu
+        # befüllt -- ein Lock innerhalb davon würde sich selbst mitlöschen.
+        # `mkdir` ist atomar (schlägt fehl, wenn das Verzeichnis schon
+        # existiert), das reicht als einfache Sperre gegen doppelte
+        # Hintergrund-Builds, falls mangrep kurz hintereinander mehrfach
+        # mit kaltem Cache läuft -- ohne die Sperre würde einfach nochmal
+        # live über rg -z gesucht, nie falsch, nur ohne Cache-Vorteil.
+        # Bricht der Hintergrund-Build unsauber ab, bleibt das Lock stehen
+        # und spätere Aufrufe bauen den Cache nicht mehr automatisch neu
+        # (rg -z läuft aber weiter korrekt) -- dann von Hand `rmdir` auf
+        # das Lock oder `rm -rf` auf $cachedir.
+        local lockdir="${cachedir}.building"
+        if mkdir "$lockdir" 2>/dev/null; then
+            _hinweis "mangrep: Cache fehlt/ist veraltet -- baue im Hintergrund neu, diese Suche läuft direkt über rg -z (~4s)…"
+            (
+                rm -rf "$cachedir"
+                mkdir -p "$cachedir"
+                find "${manroots[@]}" -type f -name '*.gz' -print0 2>/dev/null \
+                    | CACHEDIR="$cachedir" xargs -0 -P "$(nproc)" -I{} sh -c '
+                        f="{}"
+                        out="$CACHEDIR${f%.gz}.txt"
+                        mkdir -p "$(dirname "$out")"
+                        zcat "$f" 2>/dev/null | sed "s/\\\\-/-/g" > "$out"
+                      '
+                touch "$marker"
+                rmdir "$lockdir" 2>/dev/null
+            ) >/dev/null 2>&1 &
+            disown
+        fi
+        rg -z -l -i -P -0 -- "$pattern" "${manroots[@]}" > "$filelist" 2>/dev/null
+    else
+        if [ "$need_build" -eq 1 ]; then
+            _hinweis "mangrep: baue Textcache auf (einmalig bzw. nach Änderungen, ~15s)…"
+            rm -rf "$cachedir"
+            mkdir -p "$cachedir"
+            find "${manroots[@]}" -type f -name '*.gz' -print0 2>/dev/null \
+                | CACHEDIR="$cachedir" xargs -0 -P "$(nproc)" -I{} sh -c '
+                    f="{}"
+                    out="$CACHEDIR${f%.gz}.txt"
+                    mkdir -p "$(dirname "$out")"
+                    zcat "$f" 2>/dev/null | sed "s/\\\\-/-/g" > "$out"
+                  '
+            touch "$marker"
+        fi
+
+        # Vorfilter: EIN einzelner Prozess über den ganzen (jetzt frischen)
+        # Cache (kein find/xargs mehr nötig, kein Datei-Fork-Overhead wie
+        # beim ursprünglichen zgrep-Ansatz). Bevorzugt `rg` (ripgrep) --
+        # misst schneller als `grep -r` (0,2s vs. 0,5s über den warmen
+        # Cache, 17.09. per `time` verglichen), fällt aber auf `grep`
+        # zurück, falls `rg` auf der Maschine (noch) nicht installiert ist.
+        # `-0`/`-Z` = NUL statt Newline nach jedem Dateinamen, `--` schützt
+        # "$pattern" davor, als Flag statt Suchmuster interpretiert zu
+        # werden (Muster-Gültigkeit ist oben schon geprüft, daher hier
+        # keine Sonderbehandlung des Exit-Codes nötig).
+        local rawlist
+        rawlist=$(mktemp)
+        if command -v rg >/dev/null 2>&1; then
+            rg -l -i -P -0 -- "$pattern" "$cachedir" > "$rawlist" 2>/dev/null
+        else
+            grep -rlZiP -- "$pattern" "$cachedir" > "$rawlist" 2>/dev/null
+        fi
+        # Cache-Pfade (Klartext) zurück auf die Original-.gz-Datei mappen
+        # (fürs Rendern in _mangrep_show_page gebraucht), damit der Loop
+        # unten unabhängig davon ist, ob die Pfade aus dem Cache oder (wie
+        # im rg-z-Zweig oben) schon direkt aus dem Korpus kommen.
+        while IFS= read -r -d '' cf; do
+            local origf="${cf#$cachedir}"
+            origf="${origf%.txt}.gz"
+            printf '%s\0' "$origf"
+        done < "$rawlist" > "$filelist"
+        rm -f "$rawlist"
+    fi
+
+    if [ ! -s "$filelist" ]; then
+        rm -f "$filelist"
+        return 0
+    fi
+
+    local any=0
+    while IFS= read -r -d '' f; do
+        if _mangrep_show_page "$f"; then
+            any=1
+        fi
+    done < "$filelist"
+
+    rm -f "$filelist"
+    [ "$any" -eq 1 ]
+}
+
 # `chezmoi cd` überschreiben: statt einer echten Subshell nur ein
 # `cd` in der aktuellen Shell, damit sich das nicht mehr verschachteln
 # kann (siehe pstree-Vorfall vom 2026-08-08 mit 7 verschachtelten
