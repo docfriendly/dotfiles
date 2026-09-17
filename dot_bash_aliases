@@ -683,7 +683,8 @@ _mangrep_show_page() {
         --arg name "$name" --arg section "$section" --arg path "$f" \
         --arg all "$all" --arg mode "$mode" \
         --argjson cols "$cols" --argjson avail "$avail" --argjson lines "$lines_opt" \
-        --arg c_loc "$c_loc" --arg c_dim "$c_dim" --arg c_hit "$c_hit" --arg c_off "$c_off" '
+        --arg c_loc "$c_loc" --arg c_dim "$c_dim" --arg c_hit "$c_hit" \
+        --arg c_sep "$c_sep" --arg c_off "$c_off" '
         def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
         def wrap($width):
           (. | split(" ") | map(select(. != ""))) as $words
@@ -718,14 +719,63 @@ _mangrep_show_page() {
         | (if $all == "1" then
              highlight($text)
            elif $mode == "page" then
-             # Zwei-Argument-Modus: ALLE Treffer auf der einen Seite zeigen
-             # (wie `grep -A N`, mehrere Fundstellen), nicht nur die erste
-             # wie im Korpus-weiten Suchmodus unten.
-             ([$text | match($p; "gi")] | map(window(.)) | join("\n  \($c_dim)·\($c_off)\n  "))
+             # Zwei-Argument-Modus: zeilenbasiert wie `grep -A N`, NICHT der
+             # reflowte/zentrierte Zeichen-Ausschnitt aus window() unten --
+             # zeigt die Trefferzeile plus die nächsten ($lines - 1)
+             # Original-Zeilen unverändert (Einrückung/Zeilenumbrüche der
+             # gerenderten Manpage bleiben erhalten). Genau der Punkt: man
+             # sieht direkt, ob auf eine "-X"-Zeile im selben Absatz noch
+             # die zugehörige Erklärung folgt, statt eines glattgezogenen
+             # Fließtexts. `--lines N` zählt hier wie `grep -A (N-1)`: die
+             # Trefferzeile selbst plus N-1 Folgezeilen (Default 6 = wie
+             # `grep -A 5`).
+             #
+             # KEIN "\n  "-Einzug pro Zeile (anders als bei window() unten):
+             # `man`/groff rendert schon bis knapp an die reale
+             # Terminalbreite heran (empirisch bestätigt, 17.09.: Zeilen bis
+             # 79 von 80 Spalten). Zwei zusätzliche Zeichen pro Zeile reichen
+             # dann, um in einem breiten Terminal die Zeile über die reale
+             # Breite zu schieben -- der Terminal bricht sie selbst mitten
+             # im Wort um (sichtbar als einzelne Buchstaben ganz links).
+             # Ohne Einzug bleibt jede Zeile exakt so breit wie von man
+             # gerendert, kein Überlauf möglich.
+             #
+             # Überlappende/direkt angrenzende Kontextfenster werden zu
+             # EINEM Block verschmolzen (wie bei echtem `grep -A N`) --
+             # sonst taucht z.B. bei zwei nah beieinanderliegenden Treffern
+             # derselbe Absatz zweimal hintereinander auf, nur getrennt
+             # durch den "--"-Trenner (wie bei `grep -A N`, in Blau statt
+             # Standard). Der Trenner erscheint dadurch auch nur noch dort,
+             # wo wirklich eine Lücke im Text liegt, nicht bei jedem
+             # einzelnen Treffer.
+             ($text | split("\n")) as $alllines
+             | ($alllines | length) as $n
+             | [range(0; $n) | select($alllines[.] | test($p; "i"))] as $matchidx
+             | ($matchidx
+                | map({start: ., end: ((. + $lines) as $e | if $e < $n then $e else $n end)})
+               ) as $rawranges
+             | (reduce $rawranges[] as $r
+                  ([];
+                    if (length > 0) and ($r.start <= .[-1].end) then
+                      (.[:-1] + [{start: .[-1].start, end: ([$r.end, .[-1].end] | max)}])
+                    else
+                      . + [$r]
+                    end
+                  )
+               ) as $merged
+             | ($merged
+                | map($alllines[.start:.end] | map(highlight(.)) | join("\n"))
+                | join("\n\($c_sep)--\($c_off)\n"))
            else
              window($text | match($p; "i"))
            end) as $body
-        | "\($header)\n\($c_dim)\($rule)\($c_off)\n  \($body)"
+        # Seiten-Modus ohne führenden 2-Zeichen-Einzug vor $body (siehe
+        # oben) -- sonst würde ausgerechnet die allererste, oft schon fast
+        # volle Zeile (die Trefferzeile selbst) genau um diese 2 Zeichen
+        # überlaufen.
+        | (if $mode == "page" then "\($header)\n\($c_dim)\($rule)\($c_off)\n\($body)"
+           else "\($header)\n\($c_dim)\($rule)\($c_off)\n  \($body)"
+           end)
     ')
     rm -f "$renderedfile"
     if [ -n "$block" ]; then
@@ -737,7 +787,7 @@ _mangrep_show_page() {
 
 mangrep() {
     local all=0
-    local lines_opt=1
+    local lines_opt=6
     local refresh=0
     local args=()
     while [ $# -gt 0 ]; do
@@ -796,7 +846,7 @@ mangrep() {
             ;;
     esac
     local pattern="${args[0]}"
-    local c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+    local c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_sep=$'\033[34m' c_off=$'\033[0m'
 
     local cols
     cols=$(tput cols 2>/dev/null </dev/tty)
