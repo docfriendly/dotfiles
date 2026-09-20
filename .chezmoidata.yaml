@@ -14,3 +14,10 @@ machines:
       # Ziele stehen NICHT hier, sondern in ~/Sync/vault/tmux/x230/
       # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'nvim btop "gping -n 0.8 1.1.1.1 google.de" "syncthing --no-browser" "mtr google.de" "./check_connection.sh"'
+  t410s:
+    tmux:
+      statusBg: "colour33"
+      # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
+      # hier, sondern in ~/Sync/vault/tmux/t410s/resurrect-processes, siehe
+      # dot_config/tmux/tmux.conf.tmpl.
+      resurrectProcesses: 'btop "syncthing --no-browser"'
