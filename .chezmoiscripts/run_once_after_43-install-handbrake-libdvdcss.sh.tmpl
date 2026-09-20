@@ -1,0 +1,46 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# HANDBRAKE + LIBDVDCSS (nur Linux)
+# Homebrew hat für HandBrake nur einen macOS-Cask, kein Linuxbrew-
+# Formula - daher hier über apt.
+#
+# libdvdcss (CSS-Entschlüsselung für kopiergeschützte Video-DVDs)
+# liefert Debian/MX aus rechtlichen Gründen nicht als fertiges Paket
+# mit. libdvd-pkg lädt stattdessen den Quelltext von
+# download.videolan.org und baut das Paket lokal. Der Build passiert
+# erst beim dpkg-reconfigure, nicht schon beim apt-install. Ohne
+# libdvdcss lässt sich nur das (unverschlüsselte) DVD-Menü lesen,
+# der Hauptfilm nicht.
+#
+# Bei einem Fehlschlag (z.B. videolan-Server down, 502/Timeout) bricht
+# das Skript ab; chezmoi merkt sich einen fehlgeschlagenen run_once
+# nicht und startet es beim nächsten `chezmoi apply` erneut.
+# ══════════════════════════════════════════════════════════════════
+
+if dpkg -s handbrake >/dev/null 2>&1; then
+  echo "==> HandBrake bereits installiert, überspringe."
+else
+  echo "==> Installiere HandBrake..."
+  sudo apt-get install -y handbrake
+fi
+
+if ldconfig -p | grep -q 'libdvdcss\.so\.2'; then
+  echo "==> libdvdcss bereits vorhanden, überspringe."
+else
+  echo "==> Installiere libdvd-pkg und baue libdvdcss (braucht Internet)..."
+  # Debconf-Antworten vorab setzen, sonst fragt/verneint der Build im
+  # nicht-interaktiven Modus. (Fragenamen ungetestet - videolan war
+  # beim Schreiben down. Bei Problem: einmal von Hand
+  # `sudo dpkg-reconfigure libdvd-pkg` und die Fragen ansehen.)
+  echo "libdvd-pkg libdvd-pkg/build boolean true" | sudo debconf-set-selections
+  echo "libdvd-pkg libdvd-pkg/upgrade boolean true" | sudo debconf-set-selections
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libdvd-pkg
+  sudo dpkg-reconfigure -f noninteractive libdvd-pkg
+
+  ldconfig -p | grep -q 'libdvdcss\.so\.2' \
+    || { echo "!! libdvdcss wurde nicht gebaut."; exit 1; }
+fi
+{{ end -}}
