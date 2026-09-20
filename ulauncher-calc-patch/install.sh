@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Reapply the calc-history patch (+ "keep last query" setting) to a
-# freshly installed Ulauncher. Run as the normal desktop user (needs
+# Reapply the calc-history patch, the Ctrl+A/Ctrl+E input patch (+ "keep
+# last query" setting) to a freshly installed Ulauncher. Run as the normal desktop user (needs
 # sudo for the package files, not as root). See ../ULAUNCHER.md for
 # background/history of this patch.
 #
@@ -9,6 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CALC_DIR="/usr/lib/python3/dist-packages/ulauncher/search/calc"
+WINDOW_DIR="/usr/lib/python3/dist-packages/ulauncher/ui/windows"
 SETTINGS="$HOME/.config/ulauncher/settings.json"
 
 if [ ! -d "$CALC_DIR" ]; then
@@ -25,6 +26,12 @@ for f in CalcMode.py CalcResultItem.py; do
         echo "  Backup existiert schon: $f.orig"
     fi
 done
+if [ ! -f "$WINDOW_DIR/UlauncherWindow.py.orig" ]; then
+    sudo cp "$WINDOW_DIR/UlauncherWindow.py" "$WINDOW_DIR/UlauncherWindow.py.orig"
+    echo "  Backup angelegt: UlauncherWindow.py.orig"
+else
+    echo "  Backup existiert schon: UlauncherWindow.py.orig"
+fi
 
 echo "== 2/4: Patch-Dateien installieren =="
 sudo cp "$SCRIPT_DIR/CalcHistory.py" "$CALC_DIR/CalcHistory.py"
@@ -33,6 +40,12 @@ sudo cp "$SCRIPT_DIR/CalcMode.py" "$CALC_DIR/CalcMode.py"
 sudo rm -rf "$CALC_DIR/__pycache__"
 python3 -m py_compile "$CALC_DIR/CalcHistory.py" "$CALC_DIR/CalcResultItem.py" "$CALC_DIR/CalcMode.py"
 echo "  installiert, Syntax geprüft"
+
+# Ctrl+A / Ctrl+E (emacs-style Zeilenanfang/-ende) in allen Suchmodi
+sudo cp "$SCRIPT_DIR/UlauncherWindow.py" "$WINDOW_DIR/UlauncherWindow.py"
+sudo rm -rf "$WINDOW_DIR/__pycache__"
+python3 -m py_compile "$WINDOW_DIR/UlauncherWindow.py"
+echo "  UlauncherWindow.py installiert, Syntax geprüft"
 
 echo "== 3/4: 'Eingabe beim Schließen behalten' aktivieren =="
 if [ -f "$SETTINGS" ]; then
@@ -64,4 +77,5 @@ disown
 echo "  neu gestartet (Log: /tmp/ulauncher-verbose.log)"
 
 echo
-echo "Fertig. Test: '2+2' eingeben -> Ergebnis + History-Zeilen sollten erscheinen."
+echo "Fertig. Test: '2+2' eingeben -> Ergebnis + History-Zeilen sollten erscheinen;"
+echo "Ctrl+A/Ctrl+E springen an Zeilenanfang/-ende."
