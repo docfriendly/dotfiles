@@ -10,15 +10,30 @@ set -eufo pipefail
 # libdvdcss (CSS-Entschlüsselung für kopiergeschützte Video-DVDs)
 # liefert Debian/MX aus rechtlichen Gründen nicht als fertiges Paket
 # mit. libdvd-pkg lädt stattdessen den Quelltext von
-# download.videolan.org und baut das Paket lokal. Der Build passiert
-# erst beim dpkg-reconfigure, nicht schon beim apt-install. Ohne
-# libdvdcss lässt sich nur das (unverschlüsselte) DVD-Menü lesen,
-# der Hauptfilm nicht.
+# download.videolan.org und baut das Paket lokal. Ohne libdvdcss
+# lässt sich nur das (unverschlüsselte) DVD-Menü lesen, der
+# Hauptfilm nicht.
 #
-# Bei einem Fehlschlag (z.B. videolan-Server down, 502/Timeout) bricht
-# das Skript ab; chezmoi merkt sich einen fehlgeschlagenen run_once
-# nicht und startet es beim nächsten `chezmoi apply` erneut.
+# Das Repo hat einen öffentlichen Mirror -> der Tarball wird bewusst
+# NICHT eingecheckt (Umgehungsverbot, §95a UrhG / DMCA). Stattdessen:
+# libdvd-pkg prüft vor dem Download, ob
+# /usr/src/libdvd-pkg/libdvdcss_<VER>.orig.tar.bz2 existiert, und
+# vergleicht ihn danach mit einer fest im Paket hinterlegten SHA256.
+# Diese Datei legen wir selbst vorher ab - aus dem Vault (Syncthing,
+# privat) oder von mehreren Mirrors. Woher sie kommt, ist egal: eine
+# falsche Datei fällt an der SHA256 durch.
+#
+# Reihenfolge wichtig: libdvd-pkg baut bei der Paket-Konfiguration
+# sofort (Debconf-Frage libdvd-pkg/build, Default true) und würde bei
+# Serverausfall dort scheitern. Deshalb: Build erst aus, Paket
+# installieren, Tarball ablegen, Build an, reconfigure.
+#
+# Fehlgeschlagener run_once wird von chezmoi nicht als erledigt
+# gemerkt -> nächster `chezmoi apply` versucht es erneut.
 # ══════════════════════════════════════════════════════════════════
+
+VAULT_VENDOR="$HOME/Sync/vault/script/common/vendor"
+SRC_DIR="/usr/src/libdvd-pkg"
 
 if dpkg -s handbrake >/dev/null 2>&1; then
   echo "==> HandBrake bereits installiert, überspringe."
@@ -30,14 +45,54 @@ fi
 if ldconfig -p | grep -q 'libdvdcss\.so\.2'; then
   echo "==> libdvdcss bereits vorhanden, überspringe."
 else
-  echo "==> Installiere libdvd-pkg und baue libdvdcss (braucht Internet)..."
-  # Debconf-Antworten vorab setzen, sonst fragt/verneint der Build im
-  # nicht-interaktiven Modus. (Fragenamen ungetestet - videolan war
-  # beim Schreiben down. Bei Problem: einmal von Hand
-  # `sudo dpkg-reconfigure libdvd-pkg` und die Fragen ansehen.)
-  echo "libdvd-pkg libdvd-pkg/build boolean true" | sudo debconf-set-selections
-  echo "libdvd-pkg libdvd-pkg/upgrade boolean true" | sudo debconf-set-selections
+  echo "==> Installiere libdvd-pkg (Build zunächst aus)..."
+  echo "libdvd-pkg libdvd-pkg/build boolean false" | sudo debconf-set-selections
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libdvd-pkg
+
+  # Versionsstand kommt aus dem installierten Paket (VARS: VERGG=1.4.3-1)
+  VERGG="$(. /usr/lib/libdvd-pkg/VARS; echo "$VERGG")"
+  VER="${VERGG%%-*}"
+  TARBALL="libdvdcss_${VER}.orig.tar.bz2"
+  EXPECTED="$(cut -d' ' -f1 "/usr/share/libdvd-pkg/${TARBALL}.sha256")"
+
+  sha_ok() { [ "$(sha256sum "$1" | cut -d' ' -f1)" = "$EXPECTED" ]; }
+
+  if [ -s "$SRC_DIR/$TARBALL" ] && sha_ok "$SRC_DIR/$TARBALL"; then
+    echo "==> Tarball liegt schon in $SRC_DIR."
+  else
+    TMP="$(mktemp)"
+    trap 'rm -f "$TMP"' EXIT
+    GOT=""
+
+    # 1) Vault-Kopie (offline, privat)
+    if [ -s "$VAULT_VENDOR/$TARBALL" ] && sha_ok "$VAULT_VENDOR/$TARBALL"; then
+      echo "==> Nehme Tarball aus dem Vault."
+      cp "$VAULT_VENDOR/$TARBALL" "$TMP"
+      GOT=1
+    fi
+
+    # 2) Mirrors der Reihe nach, jeweils mit SHA256-Prüfung
+    if [ -z "$GOT" ]; then
+      for base in \
+        "https://get.videolan.org/libdvdcss/${VER}" \
+        "https://ftp.fau.de/videolan/libdvdcss/${VER}" \
+        "https://ftp.halifax.rwth-aachen.de/videolan/libdvdcss/${VER}" \
+        "https://download.videolan.org/pub/libdvdcss/${VER}"; do
+        echo "==> Lade von $base ..."
+        if curl -fsSL -m 120 -o "$TMP" "${base}/libdvdcss-${VER}.tar.bz2" && sha_ok "$TMP"; then
+          GOT=1
+          break
+        fi
+        echo "    (fehlgeschlagen oder SHA256 falsch, nächster Mirror)"
+      done
+    fi
+
+    [ -n "$GOT" ] || { echo "!! Kein Tarball für libdvdcss ${VER} bekommen."; exit 1; }
+    sudo install -D -m 0644 "$TMP" "$SRC_DIR/$TARBALL"
+  fi
+
+  echo "==> Baue libdvdcss..."
+  echo "libdvd-pkg libdvd-pkg/build boolean true" | sudo debconf-set-selections
   sudo dpkg-reconfigure -f noninteractive libdvd-pkg
 
   ldconfig -p | grep -q 'libdvdcss\.so\.2' \
