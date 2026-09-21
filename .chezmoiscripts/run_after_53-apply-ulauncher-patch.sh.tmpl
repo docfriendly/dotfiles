@@ -1,0 +1,47 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if eq .chezmoi.os "linux" -}}
+# ══════════════════════════════════════════════════════════════════
+# ULAUNCHER INSTALLIEREN + PATCHEN (Calc-Modus, Ctrl+A/Ctrl+E)
+#
+# Quelle: ulauncher-calc-patch/ (per .chezmoiignore von der Anwendung
+# nach $HOME ausgenommen). Ziel: Paketpfad unter /usr/lib/python3/
+# dist-packages/ulauncher/, den chezmoi nicht verwaltet - deshalb hier
+# per Skript statt als Zieldatei. Die eigentliche Logik steckt in
+# ulauncher-calc-patch/install.sh (auch manuell aufrufbar):
+#   - Ulauncher fehlt -> gepinntes .deb (GitHub, Ersatz: Forgejo, SHA256-
+#     geprueft) installieren
+#   - Calc-Patch nur bei 5.15.x, Ctrl+A/E-Patch bei allen Versionen
+#
+# run_after_ (nicht run_onchange_): ein "apt upgrade ulauncher" ueber-
+# schreibt die Dateien, ohne dass sich hier etwas aendert. Darum bei
+# JEDEM apply pruefen; nur wenn etwas fehlt/abweicht install.sh aufrufen
+# (dann mit sudo). Alles in Ordnung: kein Output, kein sudo.
+# ══════════════════════════════════════════════════════════════════
+
+PATCH_DIR="{{ .chezmoi.sourceDir }}/ulauncher-calc-patch"
+UL_DIR=/usr/lib/python3/dist-packages/ulauncher
+MARKER="emacs-style line navigation"
+
+needs_run=0
+if ! dpkg -s ulauncher >/dev/null 2>&1; then
+  needs_run=1
+else
+  # Ctrl+A/E-Patch (alle Versionen)
+  grep -q "$MARKER" "$UL_DIR/ui/windows/UlauncherWindow.py" || needs_run=1
+  # Calc-Patch (nur 5.15.x)
+  case "$(dpkg-query -W -f='${Version}' ulauncher)" in
+    5.15.*)
+      for f in CalcMode.py CalcHistory.py CalcResultItem.py; do
+        cmp -s "$PATCH_DIR/$f" "$UL_DIR/search/calc/$f" || needs_run=1
+      done
+      ;;
+  esac
+fi
+
+if [ "$needs_run" = 1 ]; then
+  echo "==> Ulauncher fehlt oder Patches weichen ab (neu/per apt ueberschrieben), spiele ein..."
+  bash "$PATCH_DIR/install.sh" --no-restart
+fi
+{{ end -}}

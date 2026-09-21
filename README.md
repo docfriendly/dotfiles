@@ -192,23 +192,17 @@ Truncation-Marker, warum Breiten-Argumente literale Zahlen sein müssen,
 SECOND_BRAIN-Berichten `termius-iphone-tmux-env-var-krimi/` und
 `tmux-termius-statuszeile-customizing/`, nicht hier im Repo.
 
-## Ulauncher (Launcher + Calc-Patch)
+## Ulauncher (Launcher + Patches)
 
 `dot_config/ulauncher/{settings.json,extensions.json,shortcuts.json}`
 versioniert die Ulauncher-Einstellungen (Theme, Hotkey, Shortcuts,
-Extensions-Liste). Zwei Dinge sind dabei bewusst **nicht** über chezmoi
-automatisiert, weil beide außerhalb von `$HOME` bzw. außerhalb dessen
-liegen, was chezmoi verwaltet:
+Extensions-Liste). Paket und Patches (Punkt 1) laufen automatisch bei
+`chezmoi apply`; nur die Extensions (Punkt 2) sind manuell.
 
-**1. Ulauncher-Paket selbst.** Kein apt/nala-Repo führt `ulauncher` auf
-Debian/MX (nur eine Ubuntu-PPA, die auf MX nicht nutzbar ist) – Installation
-über das offizielle `.deb` von den
-[GitHub Releases](https://github.com/Ulauncher/Ulauncher/releases):
-
-```bash
-curl -sLO https://github.com/Ulauncher/Ulauncher/releases/download/<version>/ulauncher_<version>_all.deb
-sudo apt install ./ulauncher_<version>_all.deb
-```
+**1. Ulauncher-Paket + Patches: automatisch.** Siehe unten
+„Automatische Installation und Patches". Kurz: Kein apt/nala-Repo führt
+`ulauncher` auf Debian/MX, darum installiert ein Skript ein gepinntes `.deb`
+und patcht es.
 
 **2. Extensions.** `extensions.json` beschreibt nur, welche Extensions
 gewünscht sind (Commit-Pins) – die eigentlichen Git-Checkouts unter
@@ -227,22 +221,60 @@ git clone https://github.com/no-faff/ulauncher-calculate-anything com.github.no-
 (Ordnername muss exakt der jeweiligen `id` aus `extensions.json`
 entsprechen.)
 
-**3. Calc-Patch.** `ulauncher-calc-patch/` im Repo-Root (per
-`.chezmoiignore` von der Anwendung nach `$HOME` ausgenommen, wie
-`README.md` selbst) enthält die gepatchten `CalcMode.py`/`CalcHistory.py`/
-`CalcResultItem.py` (erweiterter Taschenrechner: `sqrt`/`sin`/`log`/...,
-Konstanten `pi`/`e`/..., Rechen-History) plus `install.sh`, das sie nach
-`/usr/lib/python3/dist-packages/ulauncher/search/calc/` kopiert – ein
-System-Paketpfad, den chezmoi grundsätzlich nicht anfasst. Nach
-Ulauncher-Installation (und nach jedem `apt upgrade ulauncher`, das den
-Patch kommentarlos überschreibt) manuell:
+### Automatische Installation und Patches
+
+`ulauncher-calc-patch/` im Repo-Root (per `.chezmoiignore` von der
+Anwendung nach `$HOME` ausgenommen, wie `README.md` selbst) enthält die
+gepatchten `CalcMode.py`/`CalcHistory.py`/`CalcResultItem.py` plus
+`install.sh`. Das Skript patcht Dateien unter
+`/usr/lib/python3/dist-packages/ulauncher/` – ein System-Paketpfad, den
+chezmoi grundsätzlich nicht verwaltet. Deshalb steuert es
+`.chezmoiscripts/run_after_53-apply-ulauncher-patch.sh.tmpl`:
+
+- Läuft bei **jedem** `chezmoi apply` (bewusst `run_after_`, nicht
+  `run_onchange_`: ein `apt upgrade ulauncher` überschreibt die Patches, ohne
+  dass sich das Skript ändert).
+- Ruft `install.sh --no-restart` nur auf, wenn Ulauncher fehlt oder ein Patch
+  fehlt/abweicht. Sonst kein Output, kein `sudo`.
+- `--no-restart`, weil `chezmoi apply` oft ohne `$DISPLAY` läuft; Ulauncher
+  dann einmal von Hand neu starten. `install.sh` lässt sich auch direkt
+  aufrufen (ohne Flag startet es Ulauncher neu):
 
 ```bash
 ~/.local/share/chezmoi/ulauncher-calc-patch/install.sh
 ```
 
-Braucht `sudo` und eine echte Desktop-Sitzung (nicht headless/SSH ohne
-`$DISPLAY`) für den abschließenden Ulauncher-Neustart.
+Braucht `sudo`.
+
+`install.sh` macht der Reihe nach:
+
+1. **Ulauncher installieren, falls fehlend:** gepinntes `.deb`, aktuell
+   **5.15.15** (`PIN_VERSION`/`PIN_SHA256` in `install.sh`). Quellen in dieser
+   Reihenfolge, jeweils SHA256-geprüft: GitHub-Release (ohne VPN erreichbar)
+   → Forgejo Generic Package
+   `forgejo.tipi.lan:8195/api/packages/harry/generic/ulauncher/5.15.15/`
+   (nur per VPN, ohne Login lesbar). Installiert per `nala`, sonst
+   `apt-get`. Bereits installierte Versionen (z. B. 5.15.7 auf dem x230)
+   werden nicht angefasst.
+2. **Calc-Patch** (erweiterter Taschenrechner: Funktionen, Konstanten,
+   Rechen-History): nur bei **5.15.x**. Ab 5.16 hat Upstream einen eigenen,
+   umgebauten Rechner (`CalcCompletionResultItem.py`, Funktionen/Konstanten/
+   `%`); unsere `CalcMode.py` würde ihn kaputtmachen, das Skript
+   überspringt sie dort.
+3. **Ctrl+A / Ctrl+E** (emacs-style Zeilenanfang/-ende, in allen
+   Suchmodi): sechs Zeilen werden per Einfügen hinter den `Ctrl+,`-Zweig in
+   die installierte `UlauncherWindow.py` geschrieben, keine Vollkopie.
+   Idempotent (Marker `emacs-style line navigation`), bricht bei fehlendem
+   Anker ohne Änderung ab; getestet auf 5.15.15 und 5.16.2. Nebeneffekt:
+   `Ctrl+A` markiert nicht mehr alles.
+4. Setzt `clear-previous-query: false` („Eingabe beim Schließen behalten“).
+
+**Neue Version pinnen:** `PIN_VERSION` und `PIN_SHA256` in `install.sh`
+ändern und das neue `.deb` in die Forgejo-Registry legen
+(`curl -H "Authorization: token …" --upload-file … <URL>`). Der Token
+braucht den Scope `package` (Lesen+Schreiben) mit Repository-Zugriff „Alle“;
+ein auf einzelne Repos beschränkter Token darf `package` nicht. Nach dem
+Upload löschen.
 
 ## Neovim (LazyVim)
 
