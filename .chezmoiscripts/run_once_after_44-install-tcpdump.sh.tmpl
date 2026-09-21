@@ -1,0 +1,18 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# TCPDUMP (nur Linux - macOS bringt es mit)
+# Bewusst über apt statt Brewfile: Mitschneiden braucht root, und
+# `sudo tcpdump` findet Linuxbrew-Binaries nicht (secure_path).
+# Genutzt vom Hinweis in `sessions` (Heartbeat-Check der mosh-Clients).
+# ══════════════════════════════════════════════════════════════════
+
+if dpkg -s tcpdump >/dev/null 2>&1; then
+  echo "==> tcpdump bereits installiert, überspringe."
+else
+  echo "==> Installiere tcpdump..."
+  sudo apt-get install -y tcpdump
+fi
+{{ end -}}
