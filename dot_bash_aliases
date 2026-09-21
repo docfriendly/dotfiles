@@ -275,8 +275,18 @@ claudegrep() {
             ;;
     esac
     local pattern="${args[0]}"
-    # "${args[1]:-...}" = zweites Argument, oder Default falls nicht gesetzt.
-    local dir="${args[1]:-$HOME/.claude/projects}"
+    # Zweites Argument = einzelnes Suchverzeichnis. Ohne Angabe: Claude-Code-
+    # Sessions plus (falls vorhanden) die per `claudeai-import` umgewandelten
+    # claude.ai-Chats aus ~/.claude/claude-ai-export. Nur existierende Ordner
+    # aufnehmen -- grep -r/find auf einen fehlenden Pfad meldet Fehler (rc 2)
+    # und würde unten fälschlich den Fallback ohne Vorfilter auslösen.
+    local dirs=()
+    if [ -n "${args[1]}" ]; then
+        dirs=("${args[1]}")
+    else
+        dirs=("$HOME/.claude/projects")
+        [ -d "$HOME/.claude/claude-ai-export" ] && dirs+=("$HOME/.claude/claude-ai-export")
+    fi
     # $'\033[...' = Bash-ANSI-C-Quoting; \033 ist das ESC-Byte (oktal 33 =
     # dezimal 27), gefolgt vom SGR-Farbcode: 36 cyan, 33 gelb, 1;35 fett+
     # magenta, 2 gedimmt, 1;31 fett+rot, 0 = zurücksetzen.
@@ -313,7 +323,7 @@ claudegrep() {
     # geleistet hat.
     local filelist
     filelist=$(mktemp)
-    grep -rlZiP --include='*.jsonl' -- "$pattern" "$dir" > "$filelist" 2>/dev/null
+    grep -rlZiP --include='*.jsonl' -- "$pattern" "${dirs[@]}" > "$filelist" 2>/dev/null
     local grep_rc=$?
     if [ "$grep_rc" -eq 1 ]; then
         # Exit 1 = Muster syntaktisch gültig, aber in keiner Datei
@@ -328,7 +338,7 @@ claudegrep() {
         # sondern zurückfallen auf die ungefilterte Originalvariante (alle
         # Dateien, kein Vorfilter -- dann wieder mit der alten Laufzeit,
         # aber korrekt).
-        find "$dir" -name '*.jsonl' -type f -print0 > "$filelist"
+        find "${dirs[@]}" -name '*.jsonl' -type f -print0 > "$filelist"
     fi
     if [ ! -s "$filelist" ]; then
         rm -f "$filelist"
