@@ -1,0 +1,54 @@
+#!/bin/bash
+# Von Claude-Code-Hooks aufgerufen (siehe "hooks" in
+# ~/Sync/vault/claude/settings.json), um Busy/Wartet-Zustand DIESER Session
+# in eine Datei zu schreiben, die die tmux-Statusleiste ausliest (siehe
+# ~/.config/tmux/claude-pane-status-color.sh, aufgerufen aus iphone-mode.sh
+# heraus). Ersetzt einen fruehreren Versuch, das ueber Claude Codes eigenen
+# OSC-Fenstertitel zu erkennen -- der unterscheidet busy/wartet entgegen
+# einer GitHub-Issue-Vermutung NICHT (empirisch widerlegt 21.09.2026: eigene
+# Pane zeigte waehrend aktiver Arbeit weiterhin "✳", keinen Spinner-Glyphen).
+#
+# $TMUX_PANE ist in Claude-Code-Hook-Subprozessen NICHT gesetzt -- Claude
+# Code filtert TMUX*/OTEL*-Variablen explizit aus der Umgebung seiner
+# Hook-Subprozesse heraus (verifiziert 21.09.2026). $CLAUDE_TMUX_PANE kommt
+# stattdessen von der claude()-Wrapperfunktion in ~/.bash_aliases, die sie
+# VOR dem eigentlichen Start von Claude Code exportiert -- ein eigener,
+# nicht gefilterter Name.
+#
+# Fire-and-forget: exit 0 immer, auch bei fehlendem/kaputtem JSON -- ein
+# Hook-Fehlschlag soll niemals eine echte Claude-Code-Aktion blockieren,
+# nur die Status-Datei bleibt dann eben stehen wie sie war.
+[ -n "$CLAUDE_TMUX_PANE" ] || exit 0
+
+STATE_DIR="$HOME/.cache/claude-tmux-status"
+mkdir -p "$STATE_DIR"
+STATE_FILE="$STATE_DIR/${CLAUDE_TMUX_PANE#%}"
+
+event=$(jq -r '.hook_event_name // empty' 2>/dev/null)
+
+case "$event" in
+	UserPromptSubmit|PreToolUse)
+		# Neue Eingabe verarbeiten bzw. ein Tool ausfuehren (auch nach einer
+		# Permission-Freigabe, s.u.) = Claude arbeitet gerade.
+		echo busy > "$STATE_FILE"
+		;;
+	Stop)
+		# Antwort fertig, Claude wartet auf die naechste Eingabe.
+		echo waiting > "$STATE_FILE"
+		;;
+	Notification)
+		# Permission-Prompt, Idle-Hinweis, etc. -- in allen Faellen wartet
+		# Claude auf eine Reaktion von dir, Subtyp-Unterscheidung daher
+		# nicht noetig (kein Feld dafuer im JSON, nur ueber matcher in
+		# settings.json waehlbar -- hier bewusst ein einziger Hook fuer
+		# alle Notification-Subtypen).
+		echo waiting > "$STATE_FILE"
+		;;
+	SessionStart)
+		echo waiting > "$STATE_FILE"
+		;;
+	SessionEnd)
+		rm -f "$STATE_FILE"
+		;;
+esac
+exit 0

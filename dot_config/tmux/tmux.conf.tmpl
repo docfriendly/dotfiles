@@ -36,6 +36,12 @@ set -g status-bg {{ $machine.tmux.statusBg }}
 set -g window-status-style bg=yellow
 set -g window-status-current-style bg=red,fg=white
 
+# tmux' Default (15s) ist fuer die Claude-Code-Busy/Wartet-Faerbung der
+# Fenster-Boxen (siehe iphone-mode.sh, _claude_prefix, sowie
+# claude-pane-status-hook/-color.sh) zu traege -- ein Wechsel busy->wartet
+# soll zeitnah sichtbar werden statt bis zu 15s nachzuhinken.
+set -g status-interval 2
+
 # tmux' Default (40) reicht am Laptop nicht mehr: seit iphone-mode.sh den
 # Pane-Titel/status-right dort auf feste Breite 40 (+ Leerzeichen) polstert
 # (Fund 12.09.2026 -- vorher fixe Breite 21, urspruenglicher Fund 19.08.2026),

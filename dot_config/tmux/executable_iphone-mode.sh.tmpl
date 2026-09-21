@@ -103,7 +103,35 @@ _center_m=$(( (_tab_w + 1) / 2 ))
 # keine echte Verknuepfung mehr besteht.
 _pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=black],}}"
 
-tmux set -g window-status-format "${_pip_prefix}┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐#[default]"
+# Claude-Code-Status: Farbe kommt NICHT aus Claude Codes OSC-Fenstertitel --
+# eine erste Version verliess sich darauf, dass der Titel busy ("◐"/"◑") von
+# wartet ("✳ <Titel>") unterscheidet (so von einer GitHub-Issue-Recherche
+# behauptet), das ist aber empirisch falsch: die eigene Pane zeigte waehrend
+# aktiver Arbeit weiterhin "✳", nie einen Spinner-Glyphen (widerlegt
+# 21.09.2026, eigene Session live gegengeprueft). Stattdessen schreiben
+# Claude-Code-Hooks (UserPromptSubmit/PreToolUse -> busy, Stop/Notification
+# -> wartet, siehe ~/Sync/vault/claude/settings.json + Skript
+# executable_claude-pane-status-hook) den Zustand direkt in eine Datei unter
+# ~/.cache/claude-tmux-status/<pane-id>. claude-pane-status-color.sh liest
+# das fuer ALLE Panes des Fensters (nicht nur die aktive -- ein Split-
+# Fenster mit fokussierter Nicht-Claude-Pane zeigte sonst faelschlich gar
+# keinen Status, obwohl eine andere Pane im selben Fenster wartet, Fund
+# 21.09.2026, AGENTS:7) und gibt den passenden #[bg=...]-Praefix aus (busy
+# hat Vorrang, falls mehrere Claude-Panes im Fenster unterschiedliche
+# Zustaende haben). Dateibasiert statt in tmux' Format-Sprache nachgebaut --
+# ein erster Versuch rein in Format-Sprache (P-Loop + verschachtelte
+# Ternaries) hat tmux' Klammerzaehlung gesprengt (leerer Ausdruck, 21.09.2026).
+#
+# Volle Hintergrundfarbe (wie beim PiP-Cyan-Trick) statt nur Textfarbe: ein
+# gruener Text auf dem gelben Standard-Boxhintergrund war praktisch
+# unlesbar (Fund 21.09.2026). Orange = Claude arbeitet, Gruen = Claude
+# wartet auf Eingabe (= "hier brauchts dich"). Bewusst KEIN zusaetzliches
+# Zeichen -- die Box-Breiten oben (_tab_w/_name_trunc) sind schon knapp
+# bemessen (s. Fund 19.08./12.09.2026), ein Zeichen mehr wuerde sie wieder
+# aufreissen.
+_claude_prefix="#({{ .chezmoi.homeDir }}/.config/tmux/claude-pane-status-color.sh #{window_id})"
+
+tmux set -g window-status-format "${_pip_prefix}${_claude_prefix}┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐#[default]"
 tmux set -g window-status-current-format "┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐"
 
 # Name-Ausdruck in Einzelschritten statt einer verschachtelten Zeile, damit
@@ -126,9 +154,9 @@ _name_no_prefix="#{s/^(claude-|PRE-)//:window_name}"
 _name_short="#{=/${_name_trunc}/…:${_name_no_prefix}}"
 _link_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
 _name_with_flags="${_zoom_marker}${_link_marker}${_name_short}#{s/Z//:window_flags}"
-tmux set -g @window-status-format-row2 "${_pip_prefix}└#{p${_tab_w}:${_name_with_flags}}┘#[default]"
+tmux set -g @window-status-format-row2 "${_pip_prefix}${_claude_prefix}└#{p${_tab_w}:${_name_with_flags}}┘#[default]"
 tmux set -g @window-status-current-format-row2 "└#{p${_tab_w}:${_name_with_flags}}┘"
-unset _tab_w _name_trunc _center_m _name_no_prefix _name_short _name_with_flags _pip_prefix _link_marker _zoom_marker
+unset _tab_w _name_trunc _center_m _name_no_prefix _name_short _name_with_flags _pip_prefix _claude_prefix _link_marker _zoom_marker
 
 # Session-Name links (status-left) als Zweizeilen-Kasten: oben der Name,
 # unten die Gesamtzahl ALLER tmux-Sessions auf dem Server (nicht die

@@ -1320,3 +1320,23 @@ _reltime_prefix() {
             printf "%-12s %s  %s\n", rel($1 + 0), clock, line
         }'
 }
+
+# claude(): startet Claude Code wie gewohnt, merkt sich aber vorher die
+# eigene tmux-Pane-ID in CLAUDE_TMUX_PANE. Grund: Claude Code filtert
+# TMUX*/OTEL*-Variablen explizit aus der Umgebung seiner Hook-Subprozesse
+# heraus (verifiziert 21.09.2026) -- $TMUX_PANE waere dort also NICHT
+# sichtbar, egal ob diese Shell selbst in tmux laeuft. Der eigene, nicht
+# gefilterte Name umgeht das. executable_claude-pane-status-hook (per Hooks
+# in ~/Sync/vault/claude/settings.json aufgerufen) liest die Variable und
+# schreibt darueber Busy/Wartet-Zustand in ~/.cache/claude-tmux-status/ --
+# das faerbt wiederum die Fenster-Box in der tmux-Statusleiste ein (siehe
+# iphone-mode.sh, _claude_prefix). Nur relevant innerhalb tmux; ausserhalb
+# (kein $TMUX) reiner Passthrough, der Hook selbst no-opt dann ebenfalls
+# (fehlendes CLAUDE_TMUX_PANE), ohne Farbfunktion aber folgenlos.
+claude() {
+    if [ -n "$TMUX" ]; then
+        CLAUDE_TMUX_PANE="$(tmux display-message -p '#{pane_id}')" command claude "$@"
+    else
+        command claude "$@"
+    fi
+}
