@@ -1,8 +1,15 @@
 icons  = true
 human  = true
 hidden = true # ls -a
+no-git = true # .git-Inhalte beim Traversieren mit hidden ausblenden
 
 # more like tree, ordner zuerst
 #
-#dir-order = "first" 
+#dir-order = "first"
 #layout = "inverted"
+
+# Gegenstück zu no-git: erd -c mit-git, wenn .git doch mit soll
+[mit-git]
+icons  = true
+human  = true
+hidden = true
