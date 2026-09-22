@@ -31,6 +31,14 @@ alias sudo='sudo '
 # glow mit Pager
 alias glowp='glow -p'
 
+# sdiff transparent durch csdiff (Farbausgabe) ersetzen -- nur als Bash-Alias,
+# nicht z.B. per PATH-Wrapper: csdiff ruft intern selbst wieder `sdiff` auf
+# (Backticks in dot_local/bin/executable_csdiff), und Aliase wirken nur in
+# interaktiven Shells beim Eintippen, nicht in dessen eigenem Perl-Subprozess
+# -- sonst Endlosrekursion. Skripte, die /usr/bin/sdiff direkt oder aus einer
+# nicht-interaktiven Shell aufrufen, bleiben unberührt (gewollt).
+alias sdiff='csdiff'
+
 # ══════════════════════════════════════════════════════════════════
 # HINWEISE (einheitliche "Info:"-Ausgabe für Funktionen wie findgrep, fd, ...)
 # ══════════════════════════════════════════════════════════════════
