@@ -21,7 +21,17 @@ case "$(tmux display-message -p '#{session_name}')" in
   _pip*) exit 0 ;;
 esac
 
-if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true" ]; then
+# Zweite Erkennung (Experiment, 23.09.2026): Client-Breite <= IPHONE_MAX_COLS
+# (Termius auf dem iPhone 12 mini: 76 Spalten bei kleinster Schrift). Gleicher
+# Wert wie `tput cols` in der Client-Shell -- im run-shell-Hook gibt es aber
+# kein TTY (tput lieferte dort den Fallback 80), daher #{client_width}.
+# ODER-verknüpft mit der Env-Var; zum Abschalten IPHONE_MAX_COLS=0 setzen.
+IPHONE_MAX_COLS=76
+_client_w="$(tmux display-message -p '#{client_width}' 2>/dev/null)"
+_narrow=false
+[ "${_client_w:-999}" -le "$IPHONE_MAX_COLS" ] 2>/dev/null && _narrow=true
+
+if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true" ] || $_narrow; then
   _iphone=true
   tmux set -g status-position top
   # iPhone: schmaler Touch-Screen -> feste, kompakte Innenbreite, Name hart
