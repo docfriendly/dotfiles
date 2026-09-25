@@ -369,10 +369,13 @@ style = "bold fg:green"
 [custom.ssh_in]
 description = "Anzahl offener eingehender SSH-Verbindungen"
 command = '''
-ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l
+n=$(ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
+"$HOME/.local/bin/mic-tunnel-aktiv" in && n=$((n - 1))
+echo "$n"
 '''
 when = '''
 n=$(ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
+"$HOME/.local/bin/mic-tunnel-aktiv" in && n=$((n - 1))
 [ "$n" -ge 1 ]
 '''
 symbol = "↓"
@@ -385,15 +388,34 @@ shell = ["bash", "--noprofile", "--norc"]
 [custom.ssh_out]
 description = "Anzahl offener ausgehender SSH-Verbindungen"
 command = '''
-ss -tn state established '( dport = :22 )' 2>/dev/null | tail -n +2 | wc -l
+n=$(ss -tn state established '( dport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
+"$HOME/.local/bin/mic-tunnel-aktiv" out && n=$((n - 1))
+echo "$n"
 '''
 when = '''
 n=$(ss -tn state established '( dport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
+"$HOME/.local/bin/mic-tunnel-aktiv" out && n=$((n - 1))
 [ "$n" -ge 1 ]
 '''
 symbol = "↑"
 format = "[$symbol $output]($style) "
 style = "bold fg:blue"
+shell = ["bash", "--noprofile", "--norc"]
+
+# Mikro-Tunnel (mic-tunnel-watch, x230 -> x220 fuer Claude-Diktat) ist selbst eine
+# SSH-Verbindung. Sie wird bei custom.ssh_in (x220, Socket lauscht) bzw.
+# custom.ssh_out (x230, ssh-Prozess lebt) genau EINMAL abgezogen und hier eigen
+# angezeigt: 󰍬↓ = Tunnel kommt hier an, 󰍬↑ = Tunnel geht von hier raus. Jede weitere
+# Verbindung bleibt in ↓/↑ sichtbar. Pruefung: ~/.local/bin/mic-tunnel-aktiv.
+[custom.mic_tunnel]
+description = "Mikro-Tunnel zwischen x230 und x220 steht"
+command = '''
+case $("$HOME/.local/bin/mic-tunnel-aktiv") in in) echo "↓";; out) echo "↑";; esac
+'''
+when = '"$HOME/.local/bin/mic-tunnel-aktiv" >/dev/null'
+symbol = "󰍬"
+format = "[$symbol$output]($style) "
+style = "bold fg:magenta"
 shell = ["bash", "--noprofile", "--norc"]
 
 # Mosh läuft nach dem initialen SSH-Handshake über UDP weiter (kein TCP:22

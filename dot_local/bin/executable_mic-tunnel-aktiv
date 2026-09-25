@@ -1,0 +1,19 @@
+#!/bin/bash
+# mic-tunnel-aktiv [in|out] -- steht der Mikro-Tunnel (siehe mic-tunnel-watch)?
+#   in : x220-Seite, Exit 0 wenn der Tunnel-Socket wirklich lauscht (eine
+#        liegengebliebene Socket-Datei zaehlt nicht: ss zeigt sie nicht als LISTEN)
+#   out: x230-Seite, Exit 0 wenn der ssh-Prozess aus mic-tunnel.pid lebt
+#   ohne Argument: beides pruefen, Ausgabe "in"/"out", Exit 0 bei Treffer
+# Nutzer: Starship-Zaehler (custom.ssh_in/ssh_out/mic_tunnel), sessions().
+# Ueberschreibbar zum Testen: MIC_TUNNEL_SOCK.
+SOCK="${MIC_TUNNEL_SOCK:-/run/user/$(id -u)/x230-pulse}"
+PIDFILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mic-tunnel.pid"
+
+ein() { ss -xlH 2>/dev/null | grep -qF " $SOCK "; }
+aus() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; }
+
+case "$1" in
+    in)  ein ;;
+    out) aus ;;
+    *)   if ein; then echo in; elif aus; then echo out; else exit 1; fi ;;
+esac

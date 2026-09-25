@@ -1352,11 +1352,19 @@ sessions() {
         /^sshd(-session)?: / { for (i=1;i<=NF;i++) if ($i ~ /@/) { print $i; break } }' \
         | sort -u)
 
+    # Mikro-Tunnel (mic-tunnel-watch, x230 -> x220): erste PTY-lose Session ist dann
+    # erwartet, solange der Tunnel-Socket wirklich lauscht (mic-tunnel-aktiv).
+    local mic=0
+    "$HOME/.local/bin/mic-tunnel-aktiv" in && mic=1
+
     if [ -n "$sess" ]; then
         local s tty
         while IFS= read -r s; do
             tty=${s#*@}
-            if [ "$tty" = notty ]; then
+            if [ "$tty" = notty ] && [ "$mic" -eq 1 ]; then
+                mic=0
+                printf '  %-24s  erwartet: Mikro-Tunnel vom x230\n' "$s"
+            elif [ "$tty" = notty ]; then
                 printf '  %-24s  !! kein PTY -> nicht in who\n' "$s"
             elif printf '%s\n' "$whopts" | grep -qxF "$tty"; then
                 printf '  %-24s  (in who)\n' "$s"
@@ -1379,6 +1387,7 @@ sessions() {
                 print peer
             }' | sort | uniq -c | awk '{ printf "%s(%s) ", $2, $1 }')
     printf '  %s established Socket(s)%s\n' "${cnt:-0}" "${peers:+ von: ${peers% }}"
+    "$HOME/.local/bin/mic-tunnel-aktiv" in && printf '  (davon 1 = Mikro-Tunnel vom x230)\n'
 
     # mosh: UDP-Sockets (60000-61000), nicht im :22-Filter oben -> eigener Block.
     _sessions_mosh
