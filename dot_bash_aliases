@@ -1579,10 +1579,18 @@ _reltime_prefix() {
 # iphone-mode.sh, _claude_prefix). Nur relevant innerhalb tmux; ausserhalb
 # (kein $TMUX) reiner Passthrough, der Hook selbst no-opt dann ebenfalls
 # (fehlendes CLAUDE_TMUX_PANE), ohne Farbfunktion aber folgenlos.
+#
+# Zweiter Zweck (25.09.2026): x230-Mikro fuer /voice. PULSE_SERVER ist eine
+# Liste, libpulse probiert die Eintraege bei JEDEM Verbindungsaufbau der
+# Reihe nach: erst der Tunnel-Socket vom x230 (per `ssh -R`, gesteuert von
+# mic-tunnel-watch dort), dann der lokale Server. So greift ein spaeter
+# entmutetes x230-Mikro auch in einer schon laufenden claude-Session (die
+# Aufnahme-Prozesse erben nur die Liste, nicht deren Aufloesung); ohne Tunnel
+# bleibt es beim lokalen Audio. Voraussetzung: die Aufnahme liest PULSE_SERVER
+# bei jedem Start neu (am 25.09.2026 mit einem einzelnen Socket bestaetigt,
+# mit der Liste in einer laufenden Session noch nicht).
 claude() {
-    if [ -n "$TMUX" ]; then
-        CLAUDE_TMUX_PANE="$(tmux display-message -p '#{pane_id}')" command claude "$@"
-    else
-        command claude "$@"
-    fi
+    local -a envs=("PULSE_SERVER=unix:/run/user/$UID/x230-pulse unix:/run/user/$UID/pulse/native")
+    [ -n "$TMUX" ] && envs+=("CLAUDE_TMUX_PANE=$(tmux display-message -p '#{pane_id}')")
+    env "${envs[@]}" claude "$@"
 }

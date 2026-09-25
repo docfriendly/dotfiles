@@ -29,6 +29,13 @@ ulauncher-calc-patch
 .config/barrier
 {{- end }}
 
+# mic-tunnel-watch: nur x230 (Mikro-Tunnel zum x220 fuer Claude-Diktat, siehe
+# Skriptkopf). Auf allen anderen Hosts sinnlos.
+{{- if ne .chezmoi.hostname "x230" }}
+.config/autostart/mic-tunnel-watch.desktop
+.local/bin/mic-tunnel-watch
+{{- end }}
+
 # kvm-rolle-Autostart (Rollentausch-Verbund): definierter Startzustand auf x220
 # (-> Client von x230) und x230 (-> Server, headless barriers statt GUI). Auf
 # allen anderen Hosts (kartoffel) unerwuenscht.

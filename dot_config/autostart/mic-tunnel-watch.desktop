@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=mic-tunnel-watch
+Comment=x230-Mikro per SSH-Tunnel zum x220 (Claude-Diktat): Tunnel offen, solange das Mikro entmutet ist
+Exec=/home/harry/.local/bin/mic-tunnel-watch
+TryExec=/home/harry/.local/bin/mic-tunnel-watch
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=10
+OnlyShowIn=XFCE;
