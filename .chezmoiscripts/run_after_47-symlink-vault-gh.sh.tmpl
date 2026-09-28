@@ -1,0 +1,38 @@
+#!/bin/bash
+set -eufo pipefail
+
+# ══════════════════════════════════════════════════════════════════
+# GH-CONFIG AUS DEM VAULT VERLINKEN
+# (läuft bei JEDEM Apply, analog run_after_45-symlink-vault-ssh.sh.tmpl.
+#  hosts.yml enthält den gh-OAuth-Token im Klartext und darf deshalb nicht
+#  ins Git-Repo, auch nicht age-verschlüsselt, wegen des öffentlichen
+#  Mirrors. Anders als bei SSH bewusst EIN gemeinsamer Ordner ohne
+#  Hostname-Aufteilung - ein Login (docfriendly) wird bewusst auf allen
+#  Maschinen gleich verwendet, kein Bedarf für getrennte Tokens.)
+# ══════════════════════════════════════════════════════════════════
+
+GH_DIR="$HOME/.config/gh"
+VAULT_GH_DIR="$HOME/Sync/vault/gh"
+
+mkdir -p "$GH_DIR"
+chmod 700 "$GH_DIR"
+
+# ── Symlinks für vorhandene Vault-Dateien anlegen/aktualisieren ──
+# (find statt Glob, da `set -f` oben Pathname-Expansion deaktiviert;
+#  toleriert außerdem, dass der Vault-Ordner auf einer frischen Maschine
+#  noch nicht existiert, falls Syncthing noch nicht synchronisiert hat)
+if [ -d "$VAULT_GH_DIR" ]; then
+  find "$VAULT_GH_DIR" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' file; do
+    ln -sf "$file" "$GH_DIR/$(basename "$file")"
+  done
+fi
+
+# ── verwaiste Symlinks entfernen (Quell-Datei im Vault gelöscht) ──
+find "$GH_DIR" -maxdepth 1 -type l -print0 2>/dev/null | while IFS= read -r -d '' link; do
+  target=$(readlink "$link")
+  case "$target" in
+    "$VAULT_GH_DIR"/*)
+      [ -e "$target" ] || rm "$link"
+      ;;
+  esac
+done

@@ -387,6 +387,15 @@ einer einzelnen Maschine unnötig vergrößern. Soll eine `config`-Zeile
 aktuell auf jeder Maschine einzeln im jeweiligen `ssh/<hostname>/config`
 gepflegt werden.
 
+**gh (GitHub CLI)** (`~/Sync/vault/gh/`): `hosts.yml` enthält den OAuth-Token
+im Klartext und gehört deshalb nicht ins Git-Repo, auch nicht
+age-verschlüsselt, wegen des öffentlichen Mirrors. `run_after_47-symlink-vault-gh.sh.tmpl`
+verlinkt bei jedem `chezmoi apply` automatisch alle Dateien aus
+`gh/` nach `~/.config/gh/` und räumt verwaiste Symlinks auf. Anders als bei
+SSH bewusst **ein gemeinsamer** Ordner ohne Hostname-Aufteilung: der
+gh-Login (`docfriendly`) ist auf allen Maschinen identisch, kein Bedarf für
+getrennte Tokens pro Maschine.
+
 **Custom tealdeer-Pages** (`~/Sync/vault/SECOND_BRAIN/CLI-KONSOLENKOMMANDOS-NACHSCHLAGEWERK/tldr/`):
 wird per nativem chezmoi-`symlink_`-Eintrag (`dot_local/share/tealdeer/symlink_pages.tmpl`)
 nach `~/.local/share/tealdeer/pages` verlinkt. Auch hier kein
