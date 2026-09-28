@@ -1277,6 +1277,25 @@ _ss_portfilter() {
     printf '( %s )\n' "${f:-sport = :22}"
 }
 
+# _sessions_client <pts/N>: Client-Kennung einer SSH-Sitzung aus der Umgebung der
+# Prozesse an dieser tty (/proc/PID/environ, gleicher User -> lesbar). Erkennt
+# IPHONE_CLIENT=true (Termius, siehe tmux-Statusleiste) und eine frei setzbare
+# CLIENT_ID. Variablennamen werden von Leerzeichen befreit (Termius hängt welche
+# an Name UND Wert an). Gibt "iPhone", die CLIENT_ID oder nichts aus.
+_sessions_client() {
+    local pid out
+    for pid in $(ps -t "$1" -o pid= 2>/dev/null); do
+        [ -r "/proc/$pid/environ" ] || continue
+        out=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | awk '
+            { k = $0; sub(/=.*/, "", k); gsub(/[ \t]+/, "", k)
+              v = $0; sub(/^[^=]*=/, "", v); gsub(/^[ \t]+|[ \t]+$/, "", v) }
+            k == "IPHONE_CLIENT" && v == "true" { ip = 1 }
+            k == "CLIENT_ID" { id = v }
+            END { if (ip) printf "iPhone"; if (id != "") printf "%s%s", (ip ? " " : ""), id }')
+        [ -n "$out" ] && { printf '%s' "$out"; return; }
+    done
+}
+
 # sessions [-a] [port ...]: wie `who`, aber ohne den utmp-Lärm -- obere Hälfte
 # zeigt nur echte Logins (lokaler Desktop + SSH) und faltet tmux zu EINER Zeile
 # statt einer pro Pane. Nach der "--- ... ---"-Zeile darunter die KERNEL-Sicht
@@ -1358,7 +1377,7 @@ sessions() {
     "$HOME/.local/bin/mic-tunnel-aktiv" in && mic=1
 
     if [ -n "$sess" ]; then
-        local s tty
+        local s tty c
         while IFS= read -r s; do
             tty=${s#*@}
             if [ "$tty" = notty ] && [ "$mic" -eq 1 ]; then
@@ -1367,7 +1386,8 @@ sessions() {
             elif [ "$tty" = notty ]; then
                 printf '  %-24s  !! kein PTY -> nicht in who\n' "$s"
             elif printf '%s\n' "$whopts" | grep -qxF "$tty"; then
-                printf '  %-24s  (in who)\n' "$s"
+                c=$(_sessions_client "$tty")
+                printf '  %-24s  (in who)%s\n' "$s" "${c:+  -> Client: $c}"
             else
                 printf '  %-24s  !! nicht in who\n' "$s"
             fi
