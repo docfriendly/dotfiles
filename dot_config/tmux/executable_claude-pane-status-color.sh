@@ -34,6 +34,6 @@ while IFS=' ' read -r pane_id cmd; do
 done < <(tmux list-panes -t "$win" -F '#{pane_id} #{pane_current_command}' 2>/dev/null)
 
 case "$state" in
-	busy) printf '#[bg=colour208,fg=black]' ;;
-	waiting) printf '#[bg=colour46,fg=black]' ;;
+	busy) printf '#[bg=colour175,fg=black]' ;;
+	waiting) printf '#[bg=colour108,fg=black]' ;;
 esac

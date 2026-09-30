@@ -33,8 +33,8 @@ bind c   new-window -c "#{pane_current_path}"
 
 # Style color preferences
 set -g status-bg {{ $machine.tmux.statusBg }}
-set -g window-status-style bg=yellow
-set -g window-status-current-style bg=red,fg=white
+set -g window-status-style bg=colour179
+set -g window-status-current-style bg=colour167,fg=white
 
 # tmux' Default (15s) ist fuer die Claude-Code-Busy/Wartet-Faerbung der
 # Fenster-Boxen (siehe iphone-mode.sh, _claude_prefix, sowie

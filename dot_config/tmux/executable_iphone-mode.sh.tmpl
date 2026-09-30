@@ -134,8 +134,11 @@ _pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=
 #
 # Volle Hintergrundfarbe (wie beim PiP-Cyan-Trick) statt nur Textfarbe: ein
 # gruener Text auf dem gelben Standard-Boxhintergrund war praktisch
-# unlesbar (Fund 21.09.2026). Orange = Claude arbeitet, Gruen = Claude
-# wartet auf Eingabe (= "hier brauchts dich"). Bewusst KEIN zusaetzliches
+# unlesbar (Fund 21.09.2026). Mauve (colour175) = Claude arbeitet, Salbeigruen
+# (colour108) = Claude wartet auf Eingabe (= "hier brauchts dich") --
+# bewusst keine Orange-/Neongruentoene mehr, s. Farbueberarbeitung
+# 30.09.2026 (Orange kollidierte mit dem x220-Branding, Neongruen wirkte
+# grell). Bewusst KEIN zusaetzliches
 # Zeichen -- die Box-Breiten oben (_tab_w/_name_trunc) sind schon knapp
 # bemessen (s. Fund 19.08./12.09.2026), ein Zeichen mehr wuerde sie wieder
 # aufreissen.
@@ -190,18 +193,18 @@ _count_rightpad=$(( _box_w - ${#_total_sessions} - _count_leftpad ))
 _count_centered="$(printf '%*s%s%*s' "$_count_leftpad" '' "$_total_sessions" "$_count_rightpad" '')"
 # Klick/Tap auf den Kasten ruft per MouseDown1StatusLeft-Bindung
 # choose-session auf (siehe tmux.conf).
-tmux set -g status-left "#[fg=black,bg=yellow,bold]┌#{p${_box_w}:#{session_name}}┐#[default] "
-tmux set -g @status-left-row2 "#[fg=black,bg=yellow,bold]└${_count_centered}┘#[default] "
+tmux set -g status-left "#[fg=black,bg=colour179,bold]┌#{p${_box_w}:#{session_name}}┐#[default] "
+tmux set -g @status-left-row2 "#[fg=black,bg=colour179,bold]└${_count_centered}┘#[default] "
 unset _sess_name _total_sessions _box_w _count_leftpad _count_rightpad _count_centered
 
 # Rechts (status-right): iPhone kriegt nur den W-Knopf (kein Platz für mehr,
 # Klick/Tap ruft per MouseDown1StatusRight choose-window auf). Laptop hat
 # genug Breite -> Pane-Titel/Uhrzeit/Datum bleiben zusätzlich zum W-Knopf.
 if $_iphone; then
-  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#[fg=black,bg=yellow,bold]┌W┐#[default]"
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#[fg=black,bg=colour179,bold]┌W┐#[default]"
   # Kein Text vor dem Knopf (window_bigger ist im Normalfall leer) -> Zeile 2
   # startet ebenfalls bei Spalte 0, keine Polsterung nötig.
-  tmux set -g @status-right-row2 "#[fg=black,bg=yellow,bold]└▾┘#[default]"
+  tmux set -g @status-right-row2 "#[fg=black,bg=colour179,bold]└▾┘#[default]"
 else
   # Datum+Uhrzeit stehen in Zeile 2, Zeile 1 hat dadurch Platz für einen
   # längeren Pane-Titel.
@@ -249,7 +252,7 @@ else
   # bleibt bei der vollen Breite.
   _status_right_w=40
   _status_right_trunc=$((_status_right_w - 1))
-  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{p${_status_right_w}:#{=/${_status_right_trunc}/…:#{pane_title}}} #[fg=black,bg=yellow,bold]┌W┐#[default]"
+  tmux set -g status-right "#({{ .chezmoi.homeDir }}/.config/tmux/plugins/tmux-continuum/scripts/continuum_save.sh)#{?window_bigger,[#{window_offset_x}#,#{window_offset_y}] ,}#{p${_status_right_w}:#{=/${_status_right_trunc}/…:#{pane_title}}} #[fg=black,bg=colour179,bold]┌W┐#[default]"
   # Datum/Uhrzeit in Zeile 2 mittig im _status_right_w-Feld statt linksbuendig
   # (Fund 12.09.2026): "%d-%b-%y %H:%M" ist IMMER exakt 15 Zeichen lang (2+1+3+1+2
   # + 1+2+1+2) -- auch im deutschen Locale sind alle Monatskuerzel (Jan...Dez,
@@ -260,7 +263,7 @@ else
   # echte Zentrierung (Rundungsrest landet rechts).
   _date_len=15
   _date_center_m=$(( (_status_right_w + _date_len) / 2 ))
-  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{p-${_date_center_m}:#{=/${_status_right_trunc}/…:#{l:%d-%b-%y %H:%M}}}} #[fg=black,bg=yellow,bold]└▾┘#[default]"
+  tmux set -g @status-right-row2 "#{p${_status_right_w}:#{p-${_date_center_m}:#{=/${_status_right_trunc}/…:#{l:%d-%b-%y %H:%M}}}} #[fg=black,bg=colour179,bold]└▾┘#[default]"
   unset _status_right_w _status_right_trunc _date_len _date_center_m
 fi
 

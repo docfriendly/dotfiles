@@ -52,7 +52,7 @@ show_popup() {
   # eigentliche tmux-Statusbalken (unten) bleibt unangetastet.
   tmux set-option -t "$PIP_SESSION" pane-border-status top
   tmux set-option -t "$PIP_SESSION" pane-border-format \
-    "#{?client_readonly,#[bg=red#,fg=white] LESEN  |  Prefix+u Schreiben  |  Prefix+d Exit ,#[bg=green#,fg=black] SCHREIBEN  |  Prefix+u Lesen  |  Prefix+d Exit }"
+    "#{?client_readonly,#[bg=colour167#,fg=white] LESEN  |  Prefix+u Schreiben  |  Prefix+d Exit ,#[bg=colour108#,fg=black] SCHREIBEN  |  Prefix+u Lesen  |  Prefix+d Exit }"
 
   # -x R (statt einer Zahl) fuer die Popup-Position ist hier absichtlich
   # NICHT verwendet: sobald pane-border-status auf der Zielsession aktiv ist
