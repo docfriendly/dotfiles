@@ -151,7 +151,7 @@ bind S run-shell 'tmux capture-pane -S - && tmux save-buffer ~/tmux-session-$(da
 # lange bevor die Shell das Skript sieht. Ohne Escaping schreibt capture-pane
 # dann in eine leere Datei und "term cat" laeuft ohne Argument -- ein
 # leeres, wartendes nvim-Fenster (empirisch verifiziert, 26.08.2026).
-bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - -t #{pane_id} > \"\$F\"; tmux display-popup -E -w 90% -h 90% -T 'tmux-Scrollback durchsuchen' \"nvim -c 'set nolist nonumber signcolumn=no' -c 'term cat \$F' -c 'au TermClose * ++once stopinsert'; rm -f \$F\""
+bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - -t #{pane_id} > \"\$F\"; tmux display-popup -E -w 90% -h 90% -T 'tmux-Scrollback durchsuchen' \"nvim -c 'set nolist nonumber signcolumn=no' -c 'term cat \$F' -c 'au TermClose * ++once stopinsert' -c 'source ~/.config/tmux/scrollback-yank.vim'; rm -f \$F\""
 
 # Picture-in-Picture: read-only Live-Blick auf ein ANDERES tmux-Fenster in
 # einem Popup, ohne das aktuelle Fenster zu verlassen. Details/Bau-Protokoll:
