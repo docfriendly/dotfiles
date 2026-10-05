@@ -1324,7 +1324,13 @@ _sessions_probe() {
 # IP:Port, Aufbauzeit/Dauer, Client-Kennung, tmux-Client (Idle), Auth-Möglichkeiten
 # -- plus der Probe-Einzeiler für die Gegenstelle. Ohne sudo; die Zuordnung
 # "welcher Prozess auf der Gegenseite" geht nur dort (Einzeiler), nie von hier.
+#
+# Argument $1: "voll" = Detailblock für ALLE Sitzungen (--herkunft); sonst (Standard)
+# eine Zeile je unauffälliger Sitzung, Detailblock nur bei auffälliger Gegenstelle
+# (unbekannt oder älter als SSH_IN_WARN_H h, Default 8 -- wie im Prompt).
 _sessions_herkunft() {
+    local voll=0 auff warn_s=$(( ${SSH_IN_WARN_H:-8} * 3600 )) anyauff=0
+    [ "$1" = voll ] && voll=1
     local mytty now pid ppid args user tty conn cip cport name cl up t0 tm act keys pw n=0
     mytty=$(tty 2>/dev/null); mytty=${mytty#/dev/}
     now=$(date +%s)
@@ -1339,6 +1345,16 @@ _sessions_herkunft() {
         up=$(ps -o etimes= -p "$ppid" 2>/dev/null | tr -d ' ')
         t0=; [ -n "$up" ] && t0=$((now - up))
         cl=$(_sessions_client "$tty")
+        auff=0
+        [[ $name == UNBEKANNT* ]] && auff=1
+        [ -n "$up" ] && [ "$up" -gt "$warn_s" ] && auff=1
+        [ "$auff" -eq 1 ] && anyauff=1
+        if [ "$voll" -eq 0 ] && [ "$auff" -eq 0 ]; then
+            printf '  %s@%s  %s%s%s%s\n' "$user" "$tty" "${name:-${cip:-?}}" \
+                "${up:+  $(_dauer "$up")}" "${cl:+  [$cl]}" \
+                "$([ "$tty" = "$mytty" ] && printf '  (= diese Sitzung)')"
+            continue
+        fi
         tm=$(tmux list-clients -F '#{client_tty} #{client_session} #{client_activity}' 2>/dev/null \
              | awk -v t="/dev/$tty" '$1 == t { print $2, $3; exit }')
         printf '  %s@%s%s\n' "$user" "$tty" "$([ "$tty" = "$mytty" ] && printf '  (= diese Sitzung)')"
@@ -1366,12 +1382,18 @@ _sessions_herkunft() {
         name=; [ -n "$cip" ] && name=$("$HOME/.local/bin/ssh-in-status" name "$cip")
         [ -n "$cip" ] && [ -z "$name" ] && name='UNBEKANNT -- nicht in ~/.ssh/config'
         up=$(ps -o etimes= -p "$mp" 2>/dev/null | tr -d ' ')
+        [[ $name == UNBEKANNT* ]] && anyauff=1
+        if [ "$voll" -eq 0 ] && [[ $name != UNBEKANNT* ]]; then
+            printf '  mosh-server pid %s  %s%s\n' "$mp" "${name:-${cip:-?}}" "${up:+  $(_dauer "$up")}"
+            n=$((n + 1)); continue
+        fi
         printf '  mosh-server pid %s\n' "$mp"
         printf '    Start über: %s%s\n' "${cip:-(Umgebung nicht lesbar)}" "${name:+  ($name)}"
         [ -n "$up" ] && printf '    Alter     : %s\n' "$(_dauer "$up")"
         printf '%s\n' "$menv" | grep -qx 'IPHONE_CLIENT=true' && printf '    Kennung   : iPhone\n'
         n=$((n + 1))
     done
+    [ "$voll" -eq 0 ] && [ "$anyauff" -eq 0 ] && return
     keys=$(grep -cE '^(ssh-|ecdsa-|sk-)' "$HOME/.ssh/authorized_keys" 2>/dev/null)
     pw=$(grep -rhiE '^[[:space:]]*PasswordAuthentication[[:space:]]' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null | tail -n1 | awk '{ print $2 }')
     printf '  Auth-Möglichkeiten: %s Schlüssel in authorized_keys, PasswordAuthentication %s\n' \
@@ -1413,15 +1435,21 @@ _sessions_herkunft() {
 # fragt; ist der sudo-Cache dieser tty noch warm, kommt gar kein Prompt. Abbruch
 # (Ctrl-C / falsches Passwort) -> Audit-Block wird übersprungen, der Rest bleibt.
 #
+# Im Terminal läuft die Herkunft automatisch gekürzt mit (eine Zeile je Sitzung, Detail-
+# block nur bei auffälliger Gegenstelle); `--kurz` schaltet sie ab, `--herkunft` erzwingt
+# den vollen Block. Der Audit hängt automatisch an, wenn `sudo -n` geht.
+#
 # `--herkunft` hängt je SSH-Sitzung die Details an (_sessions_herkunft): Client-
 # IP:Port, Aufbauzeit, tmux-Idle und einen Einzeiler zum Einfügen auf der
 # Gegenstelle, der dort die Prozesskette des ausgehenden ssh + Log-Zeilen zeigt.
 sessions() {
     local audit=0 herkunft=0
+    [ -t 1 ] && herkunft=2   # Terminal: Kurzfassung als Standard, in Pipes/Skripten nicht
     while :; do
         case "$1" in
             -a|--audit) audit=1; shift ;;
             --herkunft) herkunft=1; shift ;;
+            --kurz) herkunft=0; shift ;;
             *) break ;;
         esac
     done
@@ -1509,8 +1537,15 @@ sessions() {
         _hinweis "tmux-Detail: 'tmux ls' bzw. 'tmux list-panes -a'"
     fi
 
-    [ "$herkunft" -eq 1 ] && _sessions_herkunft
-    [ "$audit" -eq 1 ] && _sessions_audit $ports
+    [ "$herkunft" -eq 1 ] && _sessions_herkunft voll
+    [ "$herkunft" -eq 2 ] && _sessions_herkunft
+    if [ "$audit" -eq 1 ]; then
+        _sessions_audit $ports
+    elif [ "$herkunft" -ne 0 ]; then
+        # Audit nur automatisch, wenn sudo ohne Passwort geht (Cache warm); sonst Hinweis.
+        if sudo -n true 2>/dev/null; then _sessions_audit $ports
+        else _hinweis "Audit (Auth-Log, lastb): 'sessions -a' (braucht sudo)"; fi
+    fi
 }
 
 # _dauer <Sekunden>: kompakte Dauer ("23 s", "5 Min.", "1 h 03 Min.", "3 d 2 h").
