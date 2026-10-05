@@ -1,5 +1,7 @@
 #!/bin/bash
-# ssh-in-status [ok|warn|text|name <ip>|list] -- Prompt-Anzeige eingehender SSH-Verbindungen
+# ssh-in-status [ssh|mosh|all] [ok|warn|text|name <ip>|list] -- Prompt-Anzeige eingehender
+# SSH-Verbindungen. Optional vorangestellt: nur ssh bzw. nur mosh betrachten (Default all;
+# Starship nutzt ssh fuer ↓ und mosh fuer ⇣, je mit eigenem Cache).
 #   text : "<Name> <Alter> [+N]" der aeltesten Gegenstelle, z. B. "kartoffel 27h +1"
 #   ok   : Exit 0, wenn Verbindungen bestehen und alle unauffaellig sind
 #   warn : Exit 0, wenn mind. eine Gegenstelle unbekannt ist ODER laenger als
@@ -18,7 +20,9 @@
 # sessions --herkunft. Ergebnis wird 5 s gecacht (Starship ruft je Prompt mehrfach).
 WARN_H=${SSH_IN_WARN_H:-8}
 CFG="$HOME/.ssh/config"
-CACHE="${XDG_RUNTIME_DIR:-/tmp}/ssh-in-status.$(id -u)"
+KIND=all
+case "$1" in ssh|mosh|all) KIND=$1; shift ;; esac
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/ssh-in-status.$(id -u).$KIND"
 
 name_of() {
     # Kommentarzeile "# gegenstelle" gewinnt vor Host/HostName (Kurzname fuer den Prompt)
@@ -89,7 +93,7 @@ berechnen() {
         # Alters-Warnung nur für ssh: ein mosh-server lebt per Design Tage (Server bleibt
         # nach dem Verbindungsende bestehen), das Alter allein sagt dort nichts.
         [ "$kd" = ssh ] && [ "$a" -gt "${maxs[$ip]:--1}" ] && maxs[$ip]=$a
-    done < <(verbindungen)
+    done < <(verbindungen | awk -v k="$KIND" 'k == "all" || $4 == k')
     if [ "$total" -eq 0 ]; then printf 'none\n\n'; return; fi
     for ip in "${!cnt[@]}"; do
         n=$(name_of "$ip")
@@ -103,7 +107,7 @@ berechnen() {
     n=$(name_of "$first_ip")
     local text="${n:-$first_ip}"
     [ "$first_age" -ge 0 ] && text="$text $(alter_kurz "$first_age")"
-    [ "${kind[$first_ip]}" = mosh ] && text="$text mosh"
+    [ "$KIND" = all ] && [ "${kind[$first_ip]}" = mosh ] && text="$text mosh"
     [ "$total" -gt 1 ] && text="$text +$((total - 1))"
     printf '%s\n%s\n' "$([ "$warn" -eq 1 ] && echo warn || echo ok)" "$text"
 }

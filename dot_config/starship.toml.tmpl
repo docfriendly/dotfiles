@@ -370,8 +370,8 @@ style = "bold fg:green"
 # Steht bewusst vor der tmux-Anzeige (custom.tmux_session / custom.tmux_server_info).
 [custom.ssh_in]
 description = "Eingehende SSH-Verbindungen: Gegenstelle + Alter (unauffällig)"
-command = '"$HOME/.local/bin/ssh-in-status" text'
-when = '"$HOME/.local/bin/ssh-in-status" ok'
+command = '"$HOME/.local/bin/ssh-in-status" ssh text'
+when = '"$HOME/.local/bin/ssh-in-status" ssh ok'
 symbol = "↓"
 format = "[$symbol $output]($style) "
 style = "bold fg:yellow"
@@ -379,8 +379,8 @@ shell = ["bash", "--noprofile", "--norc"]
 
 [custom.ssh_in_warn]
 description = "Eingehende SSH-Verbindungen: unbekannte Gegenstelle oder sehr alt"
-command = '"$HOME/.local/bin/ssh-in-status" text'
-when = '"$HOME/.local/bin/ssh-in-status" warn'
+command = '"$HOME/.local/bin/ssh-in-status" ssh text'
+when = '"$HOME/.local/bin/ssh-in-status" ssh warn'
 symbol = "↓!"
 format = "[$symbol $output]($style) "
 style = "bold fg:red"
@@ -422,23 +422,29 @@ style = "bold fg:magenta"
 shell = ["bash", "--noprofile", "--norc"]
 
 # Mosh läuft nach dem initialen SSH-Handshake über UDP weiter (kein TCP:22
-# mehr) und würde von custom.ssh_in/custom.ssh_out NICHT erfasst. Zählt
-# stattdessen die laufenden mosh-server-Prozesse (= eingehende Sitzungen,
-# jemand verbindet sich per Mosh zu diesem Host). Halbpfeil ⇣ statt ↓, um
-# optisch von SSH zu unterscheiden - gleiches Farbschema (gelb=ein).
+# mehr) und würde von custom.ssh_in/custom.ssh_out NICHT erfasst. Eingehende
+# mosh-server-Prozesse (jemand verbindet sich per Mosh zu diesem Host) zeigt
+# wie ssh_in: "⇣ .244 8d +1" = Quelle der Start-SSH-Verbindung (Name aus
+# ~/.ssh/config), Alter des mosh-server, weitere Sitzungen. Halbpfeil ⇣ statt ↓,
+# um optisch von SSH zu unterscheiden. Rot (mosh_in_warn) nur bei unbekannter
+# Quelle - das Alter warnt hier bewusst nicht (ein mosh-server lebt per Design
+# tagelang). Logik: ~/.local/bin/ssh-in-status mosh ...
 [custom.mosh_in]
-description = "Anzahl laufender eingehender Mosh-Sitzungen"
-command = '''
-n=$(pgrep -c mosh-server 2>/dev/null)
-echo "${n:-0}"
-'''
-when = '''
-n=$(pgrep -c mosh-server 2>/dev/null)
-[ "${n:-0}" -ge 1 ]
-'''
+description = "Eingehende Mosh-Sitzungen: Quelle + Alter (unauffällig)"
+command = '"$HOME/.local/bin/ssh-in-status" mosh text'
+when = '"$HOME/.local/bin/ssh-in-status" mosh ok'
 symbol = "⇣"
 format = "[$symbol $output]($style) "
 style = "bold fg:yellow"
+shell = ["bash", "--noprofile", "--norc"]
+
+[custom.mosh_in_warn]
+description = "Eingehende Mosh-Sitzungen: unbekannte Quelle"
+command = '"$HOME/.local/bin/ssh-in-status" mosh text'
+when = '"$HOME/.local/bin/ssh-in-status" mosh warn'
+symbol = "⇣!"
+format = "[$symbol $output]($style) "
+style = "bold fg:red"
 shell = ["bash", "--noprofile", "--norc"]
 
 # Gegenstück zu custom.mosh_in: zählt laufende mosh-client-Prozesse (dieser
