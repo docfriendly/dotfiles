@@ -360,27 +360,30 @@ shell = ["bash", "--noprofile", "--norc"]
 symbol = "󱕵 "
 style = "bold fg:green"
 
-# Zeigt die Anzahl offener eingehender SSH-TCP-Verbindungen (sport=22, andere
-# verbinden sich zu diesem Host) - nur sichtbar wenn mindestens 1 offen ist.
-# Beruhigt: bei einer normalen Session (z.B. via Termius vom iPhone) sollte
-# hier "1" stehen; mehr ist ein Hinweis auf zusätzliche/unerwartete
-# Verbindungen. Steht bewusst vor der tmux-Anzeige (custom.tmux_session /
-# custom.tmux_server_info).
+# Eingehende SSH-Verbindungen (sport=22, andere verbinden sich zu diesem Host) -
+# nur sichtbar wenn mindestens 1 offen ist. Zeigt WER und WIE LANGE statt nur
+# der Zahl: "↓ kartoffel 27h +1" = älteste/auffälligste Gegenstelle mit Name,
+# Alter und Anzahl weiterer Verbindungen. Namen aus ~/.ssh/config (Host +
+# HostName, oder Kommentarzeile "# gegenstelle <ip> <name>"). Rot (ssh_in_warn)
+# bei unbekannter Gegenstelle (dann steht die IP da) oder Alter > 8 h
+# (SSH_IN_WARN_H). Logik, 5-s-Cache und Mikro-Tunnel-Abzug: ~/.local/bin/ssh-in-status.
+# Steht bewusst vor der tmux-Anzeige (custom.tmux_session / custom.tmux_server_info).
 [custom.ssh_in]
-description = "Anzahl offener eingehender SSH-Verbindungen"
-command = '''
-n=$(ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
-"$HOME/.local/bin/mic-tunnel-aktiv" in && n=$((n - 1))
-echo "$n"
-'''
-when = '''
-n=$(ss -tn state established '( sport = :22 )' 2>/dev/null | tail -n +2 | wc -l)
-"$HOME/.local/bin/mic-tunnel-aktiv" in && n=$((n - 1))
-[ "$n" -ge 1 ]
-'''
+description = "Eingehende SSH-Verbindungen: Gegenstelle + Alter (unauffällig)"
+command = '"$HOME/.local/bin/ssh-in-status" text'
+when = '"$HOME/.local/bin/ssh-in-status" ok'
 symbol = "↓"
 format = "[$symbol $output]($style) "
 style = "bold fg:yellow"
+shell = ["bash", "--noprofile", "--norc"]
+
+[custom.ssh_in_warn]
+description = "Eingehende SSH-Verbindungen: unbekannte Gegenstelle oder sehr alt"
+command = '"$HOME/.local/bin/ssh-in-status" text'
+when = '"$HOME/.local/bin/ssh-in-status" warn'
+symbol = "↓!"
+format = "[$symbol $output]($style) "
+style = "bold fg:red"
 shell = ["bash", "--noprofile", "--norc"]
 
 # Zeigt die Anzahl offener ausgehender SSH-TCP-Verbindungen (dport=22, dieser

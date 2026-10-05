@@ -1296,7 +1296,90 @@ _sessions_client() {
     done
 }
 
-# sessions [-a] [port ...]: wie `who`, aber ohne den utmp-Lärm -- obere Hälfte
+# _sessions_sshconn <pts/N>: "$SSH_CONNECTION" (Client-IP, Client-Port, Server-IP,
+# Server-Port) der Sitzung aus der Umgebung ihrer Prozesse; leer, wenn nicht lesbar.
+_sessions_sshconn() {
+    local pid out
+    for pid in $(ps -t "$1" -o pid= 2>/dev/null); do
+        [ -r "/proc/$pid/environ" ] || continue
+        out=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p')
+        [ -n "$out" ] && { printf '%s' "$out"; return; }
+    done
+}
+
+# _sessions_probe <client-port> <epoche>: EIN Einzeiler für die GEGENSTELLE (dort
+# einfügen und ausführen). Schlüssel ist der Client-Port der Verbindung (dort =
+# lokaler Port): daraus ss -> PID des ausgehenden ssh -> Eltern-Kette bis login/
+# xfce4-session/sshd (zeigt, WER/WO es gestartet hat), dazu sudo/su/sshd/wg-quick-
+# Zeilen im Journal (-10/+2 Min. um den Verbindungsaufbau; ohne journald Fallback
+# auf die letzten 400 Zeilen auth.log) und Zeitstempel von known_hosts + vorhandene
+# private Schlüssel (kein Schlüssel + Passwort-Login = typischer Erst-/Testlogin).
+_sessions_probe() {
+    local t='p=$(ss -tnpH "( sport = :__PORT__ )" 2>/dev/null | grep -o "pid=[0-9]*" | head -1 | cut -d= -f2); echo "ssh-pid: ${p:-nicht gefunden (anderer User? sudo ss -tnp)}"; while [ "${p:-0}" -gt 1 ]; do ps -o pid=,ppid=,user=,tty=,lstart=,args= -p $p | cut -c1-150; p=$(ps -o ppid= -p $p | tr -d " "); done; (journalctl --no-pager --since "$(date -d @$((__T__-600)) "+%F %T")" --until "$(date -d @$((__T__+120)) "+%F %T")" 2>/dev/null || tail -n 400 /var/log/auth.log 2>/dev/null) | grep -iE "sudo|su\[|sshd|wg-quick|Accepted" | cut -c1-170; ls -l --time-style=full-iso ~/.ssh/known_hosts* 2>&1; ls ~/.ssh/id_* 2>&1'
+    t=${t//__PORT__/$1}
+    printf '%s\n' "${t//__T__/$2}"
+}
+
+# _sessions_herkunft: Details zu jeder eingehenden SSH-Sitzung MIT PTY -- Client-
+# IP:Port, Aufbauzeit/Dauer, Client-Kennung, tmux-Client (Idle), Auth-Möglichkeiten
+# -- plus der Probe-Einzeiler für die Gegenstelle. Ohne sudo; die Zuordnung
+# "welcher Prozess auf der Gegenseite" geht nur dort (Einzeiler), nie von hier.
+_sessions_herkunft() {
+    local mytty now pid ppid args user tty conn cip cport name cl up t0 tm act keys pw n=0
+    mytty=$(tty 2>/dev/null); mytty=${mytty#/dev/}
+    now=$(date +%s)
+    printf -- '--- Herkunft eingehender SSH-Sitzungen (PTY) ---\n'
+    while read -r pid ppid args; do
+        [[ $args =~ ^sshd(-session)?:\ ([^@\ ]+)@(pts/[0-9]+)$ ]] || continue
+        user=${BASH_REMATCH[2]}; tty=${BASH_REMATCH[3]}; n=$((n + 1))
+        conn=$(_sessions_sshconn "$tty")
+        read -r cip cport _ <<<"$conn"
+        name=; [ -n "$cip" ] && name=$("$HOME/.local/bin/ssh-in-status" name "$cip")
+        [ -n "$cip" ] && [ -z "$name" ] && name='UNBEKANNT -- nicht in ~/.ssh/config'
+        up=$(ps -o etimes= -p "$ppid" 2>/dev/null | tr -d ' ')
+        t0=; [ -n "$up" ] && t0=$((now - up))
+        cl=$(_sessions_client "$tty")
+        tm=$(tmux list-clients -F '#{client_tty} #{client_session} #{client_activity}' 2>/dev/null \
+             | awk -v t="/dev/$tty" '$1 == t { print $2, $3; exit }')
+        printf '  %s@%s%s\n' "$user" "$tty" "$([ "$tty" = "$mytty" ] && printf '  (= diese Sitzung)')"
+        printf '    Client   : %s%s\n' "${cip:-(SSH_CONNECTION nicht lesbar)}${cport:+:$cport}" "${name:+  ($name)}"
+        [ -n "$t0" ] && printf '    Aufbau   : %s  (vor %s)\n' "$(date -d "@$t0" '+%d.%m. %H:%M:%S')" "$(_dauer "$up")"
+        [ -n "$cl" ] && printf '    Kennung  : %s\n' "$cl"
+        if [ -n "$tm" ]; then
+            act=${tm##* }
+            printf '    tmux     : Client an Session "%s", letzte Eingabe vor %s\n' "${tm% *}" "$(_dauer $((now - act)))"
+        fi
+        if [ -n "$cport" ] && [ -n "$t0" ]; then
+            printf '    Gegenstelle %s -- dort einfügen:\n' "$cip"
+            _sessions_probe "$cport" "$t0"
+        fi
+    done < <(ps -eo pid=,ppid=,args= 2>/dev/null)
+    [ "$n" -eq 0 ] && printf '  (keine SSH-Sitzung mit PTY)\n'
+    # mosh-server: Quelle = die SSH-Startverbindung (steht noch in der Umgebung des
+    # Servers; Roaming-Wechsel unsichtbar). Der Start-ssh ist beendet -> kein Probe-
+    # Einzeiler möglich, Rückverfolgung nur über Alter/Idle (siehe Block darüber).
+    local mp menv
+    for mp in $(pgrep -x mosh-server 2>/dev/null); do
+        menv=$(tr '\0' '\n' <"/proc/$mp/environ" 2>/dev/null)
+        conn=$(printf '%s\n' "$menv" | sed -n 's/^SSH_CONNECTION=//p')
+        read -r cip cport _ <<<"$conn"
+        name=; [ -n "$cip" ] && name=$("$HOME/.local/bin/ssh-in-status" name "$cip")
+        [ -n "$cip" ] && [ -z "$name" ] && name='UNBEKANNT -- nicht in ~/.ssh/config'
+        up=$(ps -o etimes= -p "$mp" 2>/dev/null | tr -d ' ')
+        printf '  mosh-server pid %s\n' "$mp"
+        printf '    Start über: %s%s\n' "${cip:-(Umgebung nicht lesbar)}" "${name:+  ($name)}"
+        [ -n "$up" ] && printf '    Alter     : %s\n' "$(_dauer "$up")"
+        printf '%s\n' "$menv" | grep -qx 'IPHONE_CLIENT=true' && printf '    Kennung   : iPhone\n'
+        n=$((n + 1))
+    done
+    keys=$(grep -cE '^(ssh-|ecdsa-|sk-)' "$HOME/.ssh/authorized_keys" 2>/dev/null)
+    pw=$(grep -rhiE '^[[:space:]]*PasswordAuthentication[[:space:]]' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null | tail -n1 | awk '{ print $2 }')
+    printf '  Auth-Möglichkeiten: %s Schlüssel in authorized_keys, PasswordAuthentication %s\n' \
+        "${keys:-0}" "${pw:-nicht gesetzt (Default yes)}"
+    printf '  (Welche Methode tatsächlich benutzt wurde, steht nur im auth.log -- unter sysvinit meist nicht lesbar.)\n'
+}
+
+# sessions [-a] [--herkunft] [port ...]: wie `who`, aber ohne den utmp-Lärm -- obere Hälfte
 # zeigt nur echte Logins (lokaler Desktop + SSH) und faltet tmux zu EINER Zeile
 # statt einer pro Pane. Nach der "--- ... ---"-Zeile darunter die KERNEL-Sicht
 # auf SSH (ss + ps, beide ohne sudo):
@@ -1329,9 +1412,19 @@ _sessions_client() {
 # dem Passwort -- einmal vorweg (`sudo -v`), damit nicht jedes Kommando einzeln
 # fragt; ist der sudo-Cache dieser tty noch warm, kommt gar kein Prompt. Abbruch
 # (Ctrl-C / falsches Passwort) -> Audit-Block wird übersprungen, der Rest bleibt.
+#
+# `--herkunft` hängt je SSH-Sitzung die Details an (_sessions_herkunft): Client-
+# IP:Port, Aufbauzeit, tmux-Idle und einen Einzeiler zum Einfügen auf der
+# Gegenstelle, der dort die Prozesskette des ausgehenden ssh + Log-Zeilen zeigt.
 sessions() {
-    local audit=0
-    case "$1" in -a|--audit) audit=1; shift ;; esac
+    local audit=0 herkunft=0
+    while :; do
+        case "$1" in
+            -a|--audit) audit=1; shift ;;
+            --herkunft) herkunft=1; shift ;;
+            *) break ;;
+        esac
+    done
     # Port(s): explizite Argumente gewinnen, sonst aus sshd_config (Default 22).
     local ports portdisp
     if [ "$#" -gt 0 ]; then ports="$*"; else ports=$(_ssh_ports); fi
@@ -1416,6 +1509,7 @@ sessions() {
         _hinweis "tmux-Detail: 'tmux ls' bzw. 'tmux list-panes -a'"
     fi
 
+    [ "$herkunft" -eq 1 ] && _sessions_herkunft
     [ "$audit" -eq 1 ] && _sessions_audit $ports
 }
 

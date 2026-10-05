@@ -1,0 +1,126 @@
+#!/bin/bash
+# ssh-in-status [ok|warn|text|name <ip>|list] -- Prompt-Anzeige eingehender SSH-Verbindungen
+#   text : "<Name> <Alter> [+N]" der aeltesten Gegenstelle, z. B. "kartoffel 27h +1"
+#   ok   : Exit 0, wenn Verbindungen bestehen und alle unauffaellig sind
+#   warn : Exit 0, wenn mind. eine Gegenstelle unbekannt ist ODER laenger als
+#          SSH_IN_WARN_H Stunden (Default 8) besteht
+#   name : Name zu einer IP (Exit 1, wenn unbekannt)
+#   list : eine Zeile je Verbindung "ip port alter_s ssh|mosh name" (zum Debuggen)
+# Mosh-Sitzungen zaehlen mit (Prozess mosh-server): IP = Quelle der Start-SSH-Verbindung
+# (Roaming-Wechsel unsichtbar), Alter = Alter des mosh-server, Text bekommt " mosh".
+# Namen stehen in ~/.ssh/config (Host + HostName, nur Eintraege ohne Wildcard); fuer
+# Clients, die nie von hier aus verbinden (iPhone), eine Kommentarzeile dort:
+#     # gegenstelle 192.168.1.1 iphone
+# Alter = Alter des sshd-Monitorprozesses der PTY-Sitzung (Port-Zuordnung ueber
+# SSH_CONNECTION). PTY-lose Verbindungen (scp, ssh host cmd) haben kein Alter und
+# erscheinen nur in der Zaehlung. Den Mikro-Tunnel (mic-tunnel-aktiv) zieht der
+# erste PTY-lose Socket ab. Nutzer: Starship (custom.ssh_in / custom.ssh_in_warn),
+# sessions --herkunft. Ergebnis wird 5 s gecacht (Starship ruft je Prompt mehrfach).
+WARN_H=${SSH_IN_WARN_H:-8}
+CFG="$HOME/.ssh/config"
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/ssh-in-status.$(id -u)"
+
+name_of() {
+    # Kommentarzeile "# gegenstelle" gewinnt vor Host/HostName (Kurzname fuer den Prompt)
+    awk -v ip="$1" '
+        /^[[:space:]]*Host[[:space:]]/ { host = $2; next }
+        /^[[:space:]]*HostName[[:space:]]/ { if ($2 == ip && host !~ /[*?]/ && h == "") h = host }
+        /^[[:space:]]*#[[:space:]]*gegenstelle[[:space:]]/ { if ($3 == ip && g == "") g = $4 }
+        END { if (g != "") print g; else if (h != "") print h }
+    ' "$CFG" 2>/dev/null
+}
+
+# alter_kurz <s>: 5m, 3h, 2d
+alter_kurz() {
+    local s=$1
+    if   [ "$s" -lt 3600 ];  then printf '%dm' $((s / 60))
+    elif [ "$s" -lt 172800 ]; then printf '%dh' $((s / 3600))
+    else                          printf '%dd' $((s / 86400))
+    fi
+}
+
+# berechnet Zeilen "ip port alter_s" (alter_s = -1: PTY-los/unbekannt) auf stdout
+verbindungen() {
+    local -A et age
+    local pid ppid ets args tty p conn cip cport mic=0
+    local -a cand moshpids
+    "$HOME/.local/bin/mic-tunnel-aktiv" in && mic=1
+    while read -r pid ppid ets args; do
+        et[$pid]=$ets
+        [[ $args =~ ^sshd(-session)?:\ [^@\ ]+@(pts/[0-9]+)$ ]] && cand+=("$ppid ${BASH_REMATCH[2]}")
+        [[ $args =~ ^(/[^[:space:]]*/)?mosh-server([[:space:]]|$) ]] && moshpids+=("$pid")
+    done < <(ps -eo pid=,ppid=,etimes=,args= 2>/dev/null)
+    for p in "${cand[@]}"; do
+        read -r ppid tty <<<"$p"
+        conn=
+        for pid in $(ps -t "$tty" -o pid= 2>/dev/null); do
+            [ -r "/proc/$pid/environ" ] || continue
+            conn=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p')
+            [ -n "$conn" ] && break
+        done
+        read -r cip cport _ <<<"$conn"
+        [ -n "$cport" ] && [ -n "${et[$ppid]}" ] && age[$cport]=${et[$ppid]}
+    done
+    local peer ip port
+    while read -r _ _ _ peer; do
+        [ -n "$peer" ] || continue
+        port=${peer##*:}; ip=${peer%:*}; ip=${ip//[\[\]]/}; ip=${ip#::ffff:}
+        if [ -z "${age[$port]}" ] && [ "$mic" -eq 1 ]; then mic=0; continue; fi
+        printf '%s %s %s ssh\n' "$ip" "$port" "${age[$port]:--1}"
+    done < <(ss -tnH state established '( sport = :22 )' 2>/dev/null)
+    # mosh: kein TCP-Socket mehr nach dem Start; Quelle der STARTVERBINDUNG steht in der
+    # Umgebung des mosh-server (fremde User: nicht lesbar -> "?" = unbekannt -> warn).
+    for pid in "${moshpids[@]}"; do
+        conn=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p')
+        read -r cip _ <<<"$conn"
+        printf '%s mosh-%s %s mosh\n' "${cip:-?}" "$pid" "${et[$pid]:--1}"
+    done
+}
+
+# schreibt den Cache: Zeile 1 = none|ok|warn, Zeile 2 = Text
+berechnen() {
+    local ip port a kd n sc total=0 warn=0 first_ip first_age=-2
+    local -A cnt max maxs kind
+    while read -r ip port a kd; do
+        total=$((total + 1))
+        cnt[$ip]=$(( ${cnt[$ip]:-0} + 1 ))
+        max[$ip]=${max[$ip]:--1}; kind[$ip]=${kind[$ip]:-$kd}
+        if [ "$a" -gt "${max[$ip]}" ]; then max[$ip]=$a; kind[$ip]=$kd; fi
+        # Alters-Warnung nur für ssh: ein mosh-server lebt per Design Tage (Server bleibt
+        # nach dem Verbindungsende bestehen), das Alter allein sagt dort nichts.
+        [ "$kd" = ssh ] && [ "$a" -gt "${maxs[$ip]:--1}" ] && maxs[$ip]=$a
+    done < <(verbindungen)
+    if [ "$total" -eq 0 ]; then printf 'none\n\n'; return; fi
+    for ip in "${!cnt[@]}"; do
+        n=$(name_of "$ip")
+        [ -z "$n" ] && warn=1
+        [ "${maxs[$ip]:--1}" -gt $((WARN_H * 3600)) ] && warn=1
+        # angezeigt wird die auffaelligste Gegenstelle: unbekannte zuerst, sonst die aelteste
+        sc=${max[$ip]}; [ -z "$n" ] && sc=$((sc + 999999999))
+        if [ "$sc" -gt "$first_age" ]; then first_age=$sc; first_ip=$ip; fi
+    done
+    first_age=${max[$first_ip]}
+    n=$(name_of "$first_ip")
+    local text="${n:-$first_ip}"
+    [ "$first_age" -ge 0 ] && text="$text $(alter_kurz "$first_age")"
+    [ "${kind[$first_ip]}" = mosh ] && text="$text mosh"
+    [ "$total" -gt 1 ] && text="$text +$((total - 1))"
+    printf '%s\n%s\n' "$([ "$warn" -eq 1 ] && echo warn || echo ok)" "$text"
+}
+
+cached() {
+    local t
+    t=$(stat -c %Y "$CACHE" 2>/dev/null || echo 0)
+    if [ $(( $(date +%s) - t )) -ge 5 ]; then
+        berechnen >"$CACHE.$$" && mv -f "$CACHE.$$" "$CACHE"
+    fi
+}
+
+case "$1" in
+    name)  n=$(name_of "$2"); [ -n "$n" ] && printf '%s\n' "$n" ;;
+    list)  verbindungen | while read -r ip port a kd; do printf '%s %s %s %s %s\n' "$ip" "$port" "$a" "$kd" "$(name_of "$ip")"; done ;;
+    ok)    cached; [ "$(sed -n 1p "$CACHE")" = ok ] ;;
+    warn)  cached; [ "$(sed -n 1p "$CACHE")" = warn ] ;;
+    text)  cached; sed -n 2p "$CACHE" ;;
+    *)     echo "Aufruf: ssh-in-status ok|warn|text|name <ip>|list" >&2; exit 2 ;;
+esac
