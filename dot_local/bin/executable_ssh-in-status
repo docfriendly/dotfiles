@@ -108,7 +108,10 @@ berechnen() {
     local text="${n:-$first_ip}"
     [ "$first_age" -ge 0 ] && text="$text $(alter_kurz "$first_age")"
     [ "$KIND" = all ] && [ "${kind[$first_ip]}" = mosh ] && text="$text mosh"
-    [ "$total" -gt 1 ] && text="$text +$((total - 1))"
+    # mosh: Gesamtzahl ("x2") statt "+1" -- die Sitzungen sind meist langlebig und gleichartig
+    if [ "$total" -gt 1 ]; then
+        if [ "$KIND" = mosh ]; then text="$text x$total"; else text="$text +$((total - 1))"; fi
+    fi
     printf '%s\n%s\n' "$([ "$warn" -eq 1 ] && echo warn || echo ok)" "$text"
 }
 
