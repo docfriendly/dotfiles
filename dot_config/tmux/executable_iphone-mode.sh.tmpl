@@ -35,11 +35,13 @@ if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true"
   _iphone=true
   tmux set -g status-position top
   # iPhone: schmaler Touch-Screen -> feste, kompakte Innenbreite, Name hart
-  # auf 4 Zeichen + Ellipse gekürzt. 8 = 4 Zeichen Name + Ellipse + 1 Flag
-  # ("*"/"-") + 2 Zellen fuer die Zoom-Lupe (die als Marker VOR dem Namen in
-  # der Box steht, s. _zoom_marker unten -- analog zum PiP-"▶").
+  # gekürzt. 8 = 7 Zeichen Name + Ellipse. PiP-Marker, Zoom-Lupe und die
+  # Flags ("*"/"-"/"M") sitzen seit 05.10.2026 komplett oben in Zeile 1 (s.
+  # _pip_marker/_zoom_marker/_flags_marker weiter oben) und brauchen hier
+  # keinen Platz mehr -- die dadurch freien 3 Zellen gehen direkt an
+  # _name_trunc (vorher 4).
   _tab_w=8
-  _name_trunc=4
+  _name_trunc=7
   _scroll_speed=1
 else
   _iphone=false
@@ -49,12 +51,14 @@ else
   # ein einziger langer Ausreißer (z.B. "kartoffel-olivetin", 18 Zeichen)
   # zog die Box sonst für ALLE Fenster unnötig breit und STM/Chezmoi &Co.
   # wirkten dadurch nicht mehr zentriert (Fund 19.08.2026, zweite Runde).
-  # 10 Zeichen Name + Ellipse + 1 Flag ("*"/"-") + 2 Zellen fuer die
-  # Zoom-Lupe (Marker VOR dem Namen in der Box, s. _zoom_marker unten,
-  # analog zum PiP-"▶") = 13+1 -- deckt kurze/mittlere Namen (STM, c-tmux,
-  # sh-STM, Chezmoi) exakt oder fast exakt ab, längere werden gekürzt.
+  # 13 Zeichen Name + Ellipse = 14 -- deckt kurze/mittlere Namen (STM,
+  # c-tmux, sh-STM, Chezmoi) exakt ab, längere werden gekürzt. PiP-Marker,
+  # Zoom-Lupe und die Flags ("*"/"-"/"M") sitzen seit 05.10.2026 komplett
+  # oben in Zeile 1 (s. _pip_marker/_zoom_marker/_flags_marker weiter oben)
+  # und brauchen hier keinen Platz mehr -- die dadurch freien 3 Zellen gehen
+  # direkt an _name_trunc (vorher 10).
   _tab_w=14
-  _name_trunc=10
+  _name_trunc=13
   _scroll_speed=3
 fi
 
@@ -78,22 +82,12 @@ tmux set -g status 2
 # Echtes Pixel-genaues Zentrieren PRO Fenster ist nicht möglich (gleicher
 # Grund wie bei der Breite: tmux wertet window-status-format intern pro
 # Fenster aus, Bash kennt die einzelne Inhaltslänge vorher nicht) -- M ist
-# also zwangsläufig ein für ALLE Fenster gemeinsamer Kompromisswert, sowohl
-# innerhalb einer Zeile als auch ZWISCHEN Zahl und Name.
-#
-# Nummer und Name bekommen deshalb bewusst dasselbe M = halbe Innenbreite
-# (nicht: Name-M aus der Durchschnitts-Namenslänge, wie in einer früheren
-# Version). Grund: mit zwei unterschiedlichen M-Werten pro Zeile landet das
-# Zentrum von Zahl und Name bei den meisten Fenstern an verschiedenen
-# Spalten -- z.B. hätte "3" über "T" (Mitte von "STM") stehen sollen, stand
-# aber 2 Spalten daneben, weil das namensspezifische M auf die
-# Durchschnittslänge aller offenen Fenster ausgelegt war, nicht auf die
-# 1-stellige Zahl. Mit gemeinsamem M richten sich KURZE/typische Namen gut
-# an der Zahl aus (Kompromiss bewusst so gewählt: die meisten Fensternamen
-# hier sind kurz); deutlich längere Namen (z.B. "Chezmoi", 7 Zeichen)
-# rutschen dafür ein paar Zeichen nach links von der Zahl weg -- unvermeidbar
-# bei einem einzigen gemeinsamen M für variabel lange Inhalte.
-_center_m=$(( (_tab_w + 1) / 2 ))
+# also zwangsläufig ein für ALLE Fenster gemeinsamer Kompromisswert. Der
+# Name (Zeile 2) wird bewusst NICHT zentriert, nur linksbündig gekürzt
+# (Fund 19.08.2026, s. Kommentar weiter unten) -- M wird daher nur noch fuer
+# die Nummer in Zeile 1 gebraucht (s. _num_center_m weiter unten, berechnet
+# aus _num_area_w statt _tab_w, weil Marker links und Flags rechts seit
+# 05.10.2026 je einen festen Teil der Box-Innenbreite reservieren).
 
 # Fenster-Tabs: oben nur die Nummer (zentriert), unten Name (gekürzt) +
 # Flags, linksbündig (Fund 19.08.2026: Zentrierung des Namens verworfen --
@@ -103,15 +97,68 @@ _center_m=$(( (_tab_w + 1) / 2 ))
 # PiP-Verknuepfung (Fenster-Option @pip_target, siehe tmux-pip-toggle.sh):
 # ganze Box in einer eigenen Farbe einfaerben (statt nur ein leicht zu
 # uebersehendes Zeichen). Nur im NICHT-aktiven Zweig -- das aktive Fenster
-# soll weiterhin rot bleiben (Vorrang vor der Verknuepfungsfarbe), das "▶"
-# im Namen zeigt die Verknuepfung dort trotzdem an. Komma im verschachtelten
-# #[...] muss als "#," escaped werden (gleiches Muster wie window_offset_x/-y
-# weiter unten in dieser Datei).
+# soll weiterhin rot bleiben (Vorrang vor der Verknuepfungsfarbe), der
+# Marker (s. _pip_marker weiter unten) zeigt die Verknuepfung dort trotzdem
+# an. Komma im verschachtelten #[...] muss als "#," escaped werden (gleiches
+# Muster wie window_offset_x/-y weiter unten in dieser Datei).
 # "__unlinked__" ist der Sentinel-Wert aus tmux-pip-toggle.sh (Prefix+u):
 # bewusst getrennt, aber @pip_target ist trotzdem nicht leer -- ohne diese
 # Sonderbehandlung wuerde die Box faelschlich weiter cyan/▶ zeigen, obwohl
 # keine echte Verknuepfung mehr besteht.
 _pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=black],}}"
+
+# PiP-Marker "▶", Zoom-Lupe 🔍, Fenster-geteilt-Marker 🔗 und die Flags
+# "*"/"-"/"M" (05.10.2026 komplett aus Zeile 2/Name nach Zeile 1/Nummer
+# verschoben -- dort ist unten mehr Platz fuer den Namen, und oben fallen
+# alle Zustaende schneller auf). Die Box-ECKEN "┌"/"┐" bleiben dabei bewusst
+# UNVERAENDERT (Wunsch 05.10.2026) -- PiP/Zoom/🔗 stehen links direkt nach
+# "┌" (mit einem zusaetzlichen Leerzeichen Abstand davor, besser sichtbar),
+# die Flags rechts direkt vor "┐" (Wunsch 05.10.2026: rechter statt linker
+# Rand, damit sich die beiden Gruppen nicht gegenseitig in die Quere
+# kommen; dort ebenfalls 1 Zeichen Abstand DAHINTER -- also spiegelbildlich
+# "┌ ..." / "... ┐" --, nicht davor, sonst klebt das Flag-Zeichen direkt an
+# "┐", Fund 05.10.2026).
+#
+# 🔗 (Wunsch 05.10.2026): tmux' natives window_linked -- 1, wenn das Fenster
+# per "link-window" in mehr als einer Session haengt (z.B. DEV:1 "LOGS",
+# das zugleich in STM-SERVER haengt). Bewusst OHNE Faelle, in denen das nur
+# an unserem eigenen PiP-Mechanismus liegt: tmux-pip-toggle.sh linkt das
+# Fenster waehrend das Popup offen ist ebenfalls per "link-window" in die
+# Session "_pip" -- window_linked waere in dem Moment also ebenso 1, obwohl
+# dafuer schon _pip_marker/_pip_prefix zustaendig sind. Deshalb zusaetzlich
+# ueber window_linked_sessions_list gegen "*_pip*" gematcht und in dem Fall
+# unterdrueckt, sonst stuenden ▶ und 🔗 fuer denselben Vorgang doppelt da.
+#
+# Breiten-Aufteilung der Box-Innenbreite _tab_w, damit sie IMMER exakt
+# _tab_w breit bleibt (unabhaengig davon, ob/wie viele Marker/Flags gerade
+# gezeigt werden -- sonst waeren Zeile 1 und Zeile 2 unterschiedlich breit
+# und die Box-Ecken stuenden nicht mehr uebereinander, s. Kommentar oben):
+# 1 Zeichen Leerzeichen nach "┌" + _marker_w fuer PiP/Zoom/🔗 (links-
+# buendig gepolstert, FESTE Breite -- wichtig, damit die Nummer danach
+# IMMER an derselben Spalte startet und sich wirklich zentrieren laesst,
+# unabhaengig davon ob gerade ein Marker gezeigt wird) + _num_area_w fuer
+# die zentrierte Nummer + _flags_w fuer die Flags (rechtsbuendig gepolstert)
+# + 1 Zeichen Leerzeichen vor "┐". _marker_w UND _flags_w bewusst GLEICH
+# (beide 2) gewaehlt, nicht nur weil 2 fuer die Flags reicht, sondern damit
+# linker Ueberhang (1 Leerzeichen + _marker_w) und rechter Ueberhang
+# (_flags_w + 1 Leerzeichen) gleich gross sind -- nur so landet die Nummer
+# wirklich in der Mitte der GESAMTEN Box (Fund 05.10.2026: mit _marker_w=3
+# bei weiterhin _flags_w=2 war die Box links 1 Zeichen "schwerer", die Zahl
+# rutschte sichtbar nach rechts). _marker_w=2 reicht fuer PiP/Zoom/🔗 EINZELN
+# -- mehrere gleichzeitig (seltener Edge-Case, z.B. ein gezoomtes PiP-
+# Fenster) koennen minimal ueberlaufen, genau wie bei den Flags unten.
+_marker_w=2
+_flags_w=2
+_num_area_w=$(( _tab_w - _marker_w - _flags_w - 2 ))
+_num_center_m=$(( (_num_area_w + 1) / 2 ))
+_pip_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
+_zoom_marker="#{?window_zoomed_flag,🔍,}"
+_shared_marker="#{?window_linked,#{?#{m:*_pip*,#{window_linked_sessions_list}},,🔗},}"
+# Das hartkodierte "Z" aus #{window_flags} (tmux haengt es selbst an, siehe
+# window.c, window_printable_flags(): flags[pos++]='Z' -- dafuer gibt es
+# KEINE Option) wird per s/Z// entfernt, sonst stuende es doppelt da (einmal
+# als 🔍 links, einmal als rohes "Z" rechts).
+_flags_marker="#{s/Z//:window_flags}"
 
 # Claude-Code-Status: Farbe kommt NICHT aus Claude Codes OSC-Fenstertitel --
 # eine erste Version verliess sich darauf, dass der Titel busy ("◐"/"◑") von
@@ -144,32 +191,22 @@ _pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=
 # aufreissen.
 _claude_prefix="#({{ .chezmoi.homeDir }}/.config/tmux/claude-pane-status-color.sh #{window_id})"
 
-tmux set -g window-status-format "${_pip_prefix}${_claude_prefix}┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐#[default]"
-tmux set -g window-status-current-format "┌#{p${_tab_w}:#{p-${_center_m}:#{window_index}}}┐"
+tmux set -g window-status-format "${_pip_prefix}${_claude_prefix}┌ #{p${_marker_w}:${_pip_marker}${_zoom_marker}${_shared_marker}}#{p${_num_area_w}:#{p-${_num_center_m}:#{window_index}}}#{p-${_flags_w}:${_flags_marker}} ┐#[default]"
+tmux set -g window-status-current-format "┌ #{p${_marker_w}:${_pip_marker}${_zoom_marker}${_shared_marker}}#{p${_num_area_w}:#{p-${_num_center_m}:#{window_index}}}#{p-${_flags_w}:${_flags_marker}} ┐"
 
 # Name-Ausdruck in Einzelschritten statt einer verschachtelten Zeile, damit
 # lesbar bleibt, was mit "claude-" passiert: Präfix weg -> auf _name_trunc
-# kürzen (mit Ellipse) -> restliche Flags (*, -, #, !, ~, M) anhängen.
+# kürzen (mit Ellipse).
 #
-# Marker VOR dem Namen, in der Reihenfolge Zoom-Lupe, dann PiP-"▶":
-# - _zoom_marker: tmux haengt normalerweise ein hartkodiertes "Z" an
-#   #{window_flags} (Quelle window.c, window_printable_flags():
-#   flags[pos++]='Z' -- dafuer gibt es KEINE Option). Wir ziehen das "Z"
-#   per s/Z// aus den nachgestellten Flags heraus und zeigen stattdessen
-#   die Lupe 🔍 vorn -- genau wie das PiP-"▶", damit beide Marker
-#   zusammenstehen und sich nicht am Namensende ins Gehege kommen.
-#   Hinweis: auf dem cyan eingefaerbten PiP-Fenster ist das Emoji etwas
-#   kontraktarm (das "▶" ist Text, faerbt sich mit fg=black; 🔍 ist ein
-#   Farb-Emoji). Falls das stoert: 🔍 durch ein Text-Zeichen wie ⌕ ersetzen.
-# - _link_marker: PiP-Verknuepfung, "▶" nur wenn @pip_target echt gesetzt.
-_zoom_marker="#{?window_zoomed_flag,🔍,}"
+# Kein Marker/Flag mehr am Namen -- PiP-"▶", Zoom-Lupe 🔍 und die Flags
+# "*"/"-"/"M" sitzen seit 05.10.2026 komplett oben in Zeile 1 (s.
+# _pip_marker/_zoom_marker/_flags_marker weiter oben), dadurch bleibt hier
+# unten der volle Platz fuer den Namen selbst.
 _name_no_prefix="#{s/^(claude-|PRE-)//:window_name}"
 _name_short="#{=/${_name_trunc}/…:${_name_no_prefix}}"
-_link_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
-_name_with_flags="${_zoom_marker}${_link_marker}${_name_short}#{s/Z//:window_flags}"
-tmux set -g @window-status-format-row2 "${_pip_prefix}${_claude_prefix}└#{p${_tab_w}:${_name_with_flags}}┘#[default]"
-tmux set -g @window-status-current-format-row2 "└#{p${_tab_w}:${_name_with_flags}}┘"
-unset _tab_w _name_trunc _center_m _name_no_prefix _name_short _name_with_flags _pip_prefix _claude_prefix _link_marker _zoom_marker
+tmux set -g @window-status-format-row2 "${_pip_prefix}${_claude_prefix}└#{p${_tab_w}:${_name_short}}┘#[default]"
+tmux set -g @window-status-current-format-row2 "└#{p${_tab_w}:${_name_short}}┘"
+unset _tab_w _name_trunc _marker_w _flags_w _num_area_w _num_center_m _name_no_prefix _name_short _pip_prefix _pip_marker _flags_marker _claude_prefix _zoom_marker _shared_marker
 
 # Session-Name links (status-left) als Zweizeilen-Kasten: oben der Name,
 # unten die Gesamtzahl ALLER tmux-Sessions auf dem Server (nicht die
@@ -257,7 +294,7 @@ else
   # (Fund 12.09.2026): "%d-%b-%y %H:%M" ist IMMER exakt 15 Zeichen lang (2+1+3+1+2
   # + 1+2+1+2) -- auch im deutschen Locale sind alle Monatskuerzel (Jan...Dez,
   # inkl. "Mär") genau 3 Zeichen. Deshalb hier ohne Kompromiss-M wie bei den
-  # variabel langen Fenster-Tabs (s. _center_m oben) exakt zentrierbar:
+  # variabel langen Fenster-Tabs (s. _num_center_m oben) exakt zentrierbar:
   # #{p-M:...} polstert zuerst rechtsbuendig auf M, #{pN:...} danach
   # linksbuendig auf die Gesamtbreite N -- ergibt bei fester Inhaltslaenge L
   # echte Zentrierung (Rundungsrest landet rechts).
