@@ -3,14 +3,23 @@
 # SSH-Verbindungen. Optional vorangestellt: nur ssh bzw. nur mosh betrachten (Default all;
 # Starship nutzt ssh fuer ↓ und mosh fuer ⇣, je mit eigenem Cache).
 #   text : "<Name> <Alter> [+N]" der aeltesten Gegenstelle, z. B. "kartoffel 27h +1"
+#          (bei mosh "xN" = Gesamtzahl statt "+N")
 #   ok   : Exit 0, wenn Verbindungen bestehen und alle unauffaellig sind
 #   warn : Exit 0, wenn mind. eine Gegenstelle unbekannt ist ODER laenger als
 #          SSH_IN_WARN_H Stunden (Default 8) besteht
 #   name : Name zu einer IP (Exit 1, wenn unbekannt)
-#   list : eine Zeile je Verbindung "ip port alter_s ssh|mosh name" (zum Debuggen)
+#   list : eine Zeile je Verbindung "ip port alter_s ssh|mosh|moshz name" (zum Debuggen)
+#   idle <pid> : Sekunden seit der mosh-server <pid> zuletzt lief (siehe unten)
 # Mosh-Sitzungen zaehlen mit (Prozess mosh-server): IP = Quelle der Start-SSH-Verbindung
 # (Roaming-Wechsel unsichtbar), Alter = Alter des mosh-server, Text bekommt " mosh".
 # Namen stehen in ~/.ssh/config (Host + HostName, nur Eintraege ohne Wildcard); fuer
+# mosh hat drei Zustaende: aktiv (Client meldet sich, Heartbeat ~3 s), getrennt ("moshz":
+# der Server lebt weiter, aber seit > MOSH_AKTIV_S Sekunden (Default 120) kam nichts mehr)
+# und gar nicht vorhanden. Getrennte zaehlen im Prompt nicht mit (kein Text, keine Warnung),
+# `sessions` listet sie. Messung ohne root: se.exec_start in /proc/<pid>/sched = Zeitpunkt,
+# an dem der Server zuletzt auf der CPU lief; ein verbundener Server wacht je Heartbeat auf,
+# ein getrennter steht still (per Test mit eingefrorenem mosh-client belegt). Grenze: Ausgabe
+# der Shell weckt den Server auch ohne Client -> dann gilt er als aktiv.
 # Clients, die nie von hier aus verbinden (iPhone), eine Kommentarzeile dort:
 #     # gegenstelle 192.168.1.1 iphone
 # Alter = Alter des sshd-Monitorprozesses der PTY-Sitzung (Port-Zuordnung ueber
@@ -19,6 +28,7 @@
 # erste PTY-lose Socket ab. Nutzer: Starship (custom.ssh_in / custom.ssh_in_warn),
 # sessions --herkunft. Ergebnis wird 5 s gecacht (Starship ruft je Prompt mehrfach).
 WARN_H=${SSH_IN_WARN_H:-8}
+AKTIV_S=${MOSH_AKTIV_S:-120}
 CFG="$HOME/.ssh/config"
 KIND=all
 case "$1" in ssh|mosh|all) KIND=$1; shift ;; esac
@@ -43,10 +53,19 @@ alter_kurz() {
     fi
 }
 
+# mosh_idle <pid>: Sekunden seit dem letzten CPU-Lauf des Prozesses (leer: nicht lesbar)
+mosh_idle() {
+    local es up
+    es=$(awk '/se\.exec_start/ { print $3 }' "/proc/$1/sched" 2>/dev/null)
+    [ -n "$es" ] || return 1
+    up=$(awk '{ print $1 }' /proc/uptime)
+    awk -v u="$up" -v e="$es" 'BEGIN { d = u - e / 1000; printf "%d\n", (d < 0 ? 0 : d) }'
+}
+
 # berechnet Zeilen "ip port alter_s" (alter_s = -1: PTY-los/unbekannt) auf stdout
 verbindungen() {
     local -A et age
-    local pid ppid ets args tty p conn cip cport mic=0
+    local pid ppid ets args tty p conn cip cport idle kd mic=0
     local -a cand moshpids
     "$HOME/.local/bin/mic-tunnel-aktiv" in && mic=1
     while read -r pid ppid ets args; do
@@ -77,7 +96,9 @@ verbindungen() {
     for pid in "${moshpids[@]}"; do
         conn=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p')
         read -r cip _ <<<"$conn"
-        printf '%s mosh-%s %s mosh\n' "${cip:-?}" "$pid" "${et[$pid]:--1}"
+        idle=$(mosh_idle "$pid")
+        kd=mosh; [ -n "$idle" ] && [ "$idle" -gt "$AKTIV_S" ] && kd=moshz
+        printf '%s mosh-%s %s %s\n' "${cip:-?}" "$pid" "${et[$pid]:--1}" "$kd"
     done
 }
 
@@ -86,6 +107,7 @@ berechnen() {
     local ip port a kd n sc total=0 warn=0 first_ip first_age=-2
     local -A cnt max maxs kind
     while read -r ip port a kd; do
+        [ "$kd" = moshz ] && continue    # getrennt: im Prompt nicht mitzaehlen
         total=$((total + 1))
         cnt[$ip]=$(( ${cnt[$ip]:-0} + 1 ))
         max[$ip]=${max[$ip]:--1}; kind[$ip]=${kind[$ip]:-$kd}
@@ -93,7 +115,7 @@ berechnen() {
         # Alters-Warnung nur für ssh: ein mosh-server lebt per Design Tage (Server bleibt
         # nach dem Verbindungsende bestehen), das Alter allein sagt dort nichts.
         [ "$kd" = ssh ] && [ "$a" -gt "${maxs[$ip]:--1}" ] && maxs[$ip]=$a
-    done < <(verbindungen | awk -v k="$KIND" 'k == "all" || $4 == k')
+    done < <(verbindungen | awk -v k="$KIND" 'k == "all" || $4 == k || (k == "mosh" && $4 == "moshz")')
     if [ "$total" -eq 0 ]; then printf 'none\n\n'; return; fi
     for ip in "${!cnt[@]}"; do
         n=$(name_of "$ip")
@@ -129,5 +151,6 @@ case "$1" in
     ok)    cached; [ "$(sed -n 1p "$CACHE")" = ok ] ;;
     warn)  cached; [ "$(sed -n 1p "$CACHE")" = warn ] ;;
     text)  cached; sed -n 2p "$CACHE" ;;
-    *)     echo "Aufruf: ssh-in-status ok|warn|text|name <ip>|list" >&2; exit 2 ;;
+    idle)  mosh_idle "$2" ;;
+    *)     echo "Aufruf: ssh-in-status ok|warn|text|name <ip>|idle <pid>|list" >&2; exit 2 ;;
 esac

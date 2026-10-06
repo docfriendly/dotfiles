@@ -1334,7 +1334,7 @@ _sessions_herkunft() {
     local mytty now pid ppid args user tty conn cip cport name cl up t0 tm act keys pw n=0
     mytty=$(tty 2>/dev/null); mytty=${mytty#/dev/}
     now=$(date +%s)
-    printf -- '--- Herkunft eingehender SSH-Sitzungen (PTY) ---\n'
+    printf -- '--- ↓ Herkunft eingehender SSH-Sitzungen (PTY) ---\n'
     while read -r pid ppid args; do
         [[ $args =~ ^sshd(-session)?:\ ([^@\ ]+)@(pts/[0-9]+)$ ]] || continue
         user=${BASH_REMATCH[2]}; tty=${BASH_REMATCH[3]}; n=$((n + 1))
@@ -1374,7 +1374,7 @@ _sessions_herkunft() {
     # mosh-server: Quelle = die SSH-Startverbindung (steht noch in der Umgebung des
     # Servers; Roaming-Wechsel unsichtbar). Der Start-ssh ist beendet -> kein Probe-
     # Einzeiler möglich, Rückverfolgung nur über Alter/Idle (siehe Block darüber).
-    local mp menv
+    local mp menv zs
     for mp in $(pgrep -x mosh-server 2>/dev/null); do
         menv=$(tr '\0' '\n' <"/proc/$mp/environ" 2>/dev/null)
         conn=$(printf '%s\n' "$menv" | sed -n 's/^SSH_CONNECTION=//p')
@@ -1384,12 +1384,13 @@ _sessions_herkunft() {
         up=$(ps -o etimes= -p "$mp" 2>/dev/null | tr -d ' ')
         [[ $name == UNBEKANNT* ]] && anyauff=1
         if [ "$voll" -eq 0 ] && [[ $name != UNBEKANNT* ]]; then
-            printf '  mosh-server pid %s  %s%s\n' "$mp" "${name:-${cip:-?}}" "${up:+  $(_dauer "$up")}"
+            printf '  ⇣ mosh-server pid %s  %s%s %s\n' "$mp" "${name:-${cip:-?}}" "${up:+  $(_dauer "$up")}" "$(_mosh_zustand "$mp")"
             n=$((n + 1)); continue
         fi
-        printf '  mosh-server pid %s\n' "$mp"
+        printf '  ⇣ mosh-server pid %s\n' "$mp"
         printf '    Start über: %s%s\n' "${cip:-(Umgebung nicht lesbar)}" "${name:+  ($name)}"
         [ -n "$up" ] && printf '    Alter     : %s\n' "$(_dauer "$up")"
+        zs=$(_mosh_zustand "$mp"); [ -n "$zs" ] && printf '    Zustand   :%s\n' "$zs"
         printf '%s\n' "$menv" | grep -qx 'IPHONE_CLIENT=true' && printf '    Kennung   : iPhone\n'
         n=$((n + 1))
     done
@@ -1477,7 +1478,7 @@ sessions() {
     '
 
     # ── untere Hälfte: Kernel-Sicht auf SSH (ss + ps, ohne sudo) ──
-    printf -- '--- aktive SSH-Verbindungen auf %s (ss + ps, ohne sudo) ---\n' "$portdisp"
+    printf -- '--- ↓ aktive SSH-Verbindungen auf %s (ss + ps, ohne sudo) ---\n' "$portdisp"
 
     # pts-Liste aus who für den Abgleich; LEITUNG kann "sshd pts/1" sein (coreutils
     # 9.7) -> alle Felder scannen statt fix $2.
@@ -1532,6 +1533,7 @@ sessions() {
 
     # mosh: UDP-Sockets (60000-61000), nicht im :22-Filter oben -> eigener Block.
     _sessions_mosh
+    _sessions_ausgehend
 
     if who | grep -qF '(tmux('; then
         _hinweis "tmux-Detail: 'tmux ls' bzw. 'tmux list-panes -a'"
@@ -1546,6 +1548,58 @@ sessions() {
         if sudo -n true 2>/dev/null; then _sessions_audit $ports
         else _hinweis "Audit (Auth-Log, lastb): 'sessions -a' (braucht sudo)"; fi
     fi
+}
+
+# _sessions_ausgehend: Gegenstück zu den eingehenden Blöcken -- Verbindungen, die DIESER
+# Rechner aufgebaut hat: ssh-Clients (established-TCP, nur eigene Prozesse sichtbar) und
+# mosh-client (UDP, Ziel steht in der Kommandozeile: "mosh-client <ip> <port>"). Je Zeile
+# Ziel (+ Name aus ~/.ssh/config), Alter und das tmux-Fenster, in dem der Client läuft
+# (Vorfahrenkette ∩ Pane-PIDs). ZOMBIE = beendeter Client, den sein Elternprozess nicht
+# abgeholt hat: keine Verbindung mehr, zählt aber in `pgrep` (Starship ⇡) mit.
+_sessions_ausgehend() {
+    local panes now rows=0
+    panes=$(tmux list-panes -a -F '#{pane_pid} #{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)
+    now=$(date +%s)
+    local pid ppid stat et comm args line
+
+    # Vorfahrenkette -> tmux-Pane ("" wenn keiner)
+    _pane_von() {
+        local p=$1 hit
+        while [ "${p:-0}" -gt 1 ]; do
+            hit=$(printf '%s\n' "$panes" | awk -v p="$p" '$1 == p { print $2; exit }')
+            [ -n "$hit" ] && { printf '%s' "$hit"; return; }
+            p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        done
+    }
+
+    local out=""
+    while read -r pid ppid stat et comm args; do
+        case "$comm" in mosh-client|ssh) ;; *) continue ;; esac
+        [ "$pid" = "$$" ] && continue
+        local ziel="" name="" pane zeile
+        pane=$(_pane_von "$ppid")
+        if [[ $stat == Z* ]]; then
+            zeile=$(printf '  %s %-11s pid %-8s ZOMBIE (beendet, nicht abgeholt; Eltern-pid %s)  Alter %s%s' \
+                    "$([ "$comm" = ssh ] && echo ↑ || echo ⇡)" "$comm" "$pid" "$ppid" "$(_dauer "$et")" "${pane:+  [$pane]}")
+        elif [ "$comm" = mosh-client ]; then
+            read -r _ ip port <<<"$args"
+            name=$("$HOME/.local/bin/ssh-in-status" name "$ip" 2>/dev/null)
+            zeile=$(printf '  ⇡ mosh-client pid %-8s → %s:%s%s  Alter %s%s' \
+                    "$pid" "${ip:-?}" "${port:-?}" "${name:+ ($name)}" "$(_dauer "$et")" "${pane:+  [$pane]}")
+        else
+            line=$(ss -tnpH state established 2>/dev/null | awk -v p="pid=$pid," 'index($0, p) { print $4; exit }')
+            [ -n "$line" ] || continue     # ssh ohne Verbindung (z. B. ControlMaster-Rest, Hilfsprozess)
+            ip=${line%:*}; ip=${ip//[\[\]]/}; ip=${ip#::ffff:}; port=${line##*:}
+            name=$("$HOME/.local/bin/ssh-in-status" name "$ip" 2>/dev/null)
+            zeile=$(printf '  ↑ ssh         pid %-8s → %s:%s%s  Alter %s%s' \
+                    "$pid" "$ip" "$port" "${name:+ ($name)}" "$(_dauer "$et")" "${pane:+  [$pane]}")
+        fi
+        out+="$zeile"$'\n'
+    done < <(ps -eo pid=,ppid=,stat=,etimes=,comm=,args= 2>/dev/null)
+    unset -f _pane_von
+
+    printf -- '--- ↑ ⇡ ausgehende Verbindungen (von diesem Rechner aus) ---\n'
+    if [ -n "$out" ]; then printf '%s' "$out"; else printf '  (keine ssh-/mosh-Clients)\n'; fi
 }
 
 # _dauer <Sekunden>: kompakte Dauer ("23 s", "5 Min.", "1 h 03 Min.", "3 d 2 h").
@@ -1567,13 +1621,27 @@ _proc_descendants() {
     done
 }
 
+# _mosh_zustand <pid>: " aktiv" bzw. " GETRENNT (still seit 3h)" aus ssh-in-status idle;
+# leer, wenn nicht messbar (fremder User ohne Leserecht auf /proc/<pid>/sched).
+_mosh_zustand() {
+    local idle
+    idle=$("$HOME/.local/bin/ssh-in-status" idle "$1" 2>/dev/null) || return 0
+    [ -n "$idle" ] || return 0
+    if [ "$idle" -gt "${MOSH_AKTIV_S:-120}" ]; then
+        printf ' GETRENNT (still seit %s)' "$(_dauer "$idle")"
+    else
+        printf ' aktiv'
+    fi
+}
+
 # _sessions_mosh: pro laufendem mosh-server eine Zeile (PID, User, Alter, UDP-Port,
 # Kindprozess-Kette) plus Folgezeile mit dem daran hängenden tmux-Client und dessen
 # Idle-Zeit. mosh-server hat keine TCP-Verbindung und kein Idle-Timeout -- ein
 # Client, der weg ist (iOS-App suspendiert, WLAN gewechselt), hinterlässt einen
-# Server, der ewig weiterläuft. Ohne sudo ist ein LEBENSZEICHEN des Clients nicht
-# sichtbar; "Eingabe vor X" ist nur die letzte Tastatureingabe im tmux-Client
-# (client_activity), nicht "Client lebt". Ports kommen aus `ss -p` (nur eigene
+# Server, der ewig weiterläuft. Lebenszeichen ohne sudo: _mosh_zustand (der Server
+# wacht je Client-Heartbeat auf, ein getrennter steht still; Details in
+# ssh-in-status). "Eingabe vor X" ist nur die letzte Tastatureingabe im tmux-Client
+# (client_activity). Ports kommen aus `ss -p` (nur eigene
 # Prozesse sichtbar -> bei fremden Usern "?"); tmux-Clients nur vom eigenen Server.
 # Zuordnung Server -> tmux-Client: tmux-Client-PID ∈ Nachfahren des mosh-server.
 _sessions_mosh() {
@@ -1594,8 +1662,8 @@ _sessions_mosh() {
     clients=$(tmux list-clients -F '#{client_pid} #{session_name} #{client_activity}' 2>/dev/null)
     now=$(date +%s)
 
-    printf -- '--- mosh-server (UDP; "Eingabe" = letzte Tastatureingabe im tmux-Client, kein Lebenszeichen) ---\n'
-    local pid user age port kid q chain nchain nall descs line cpid sess act mark
+    printf -- '--- ⇣ mosh-server (UDP; "Eingabe" = letzte Tastatureingabe im tmux-Client, kein Lebenszeichen) ---\n'
+    local pid user age port kid q chain nchain nall descs line cpid sess act mark zs
     for pid in $pids; do
         read -r user age <<<"$(ps -o user=,etimes= -p "$pid" 2>/dev/null)"
         [ -n "$age" ] || continue    # zwischenzeitlich beendet
@@ -1617,8 +1685,9 @@ _sessions_mosh() {
         mark=""
         case "$anc" in *" $pid "*) mark="  ← diese Sitzung" ;; esac
 
-        printf '  pid %-8s %-8s Alter %-12s UDP :%-6s %s%s\n' \
+        printf '  ⇣ pid %-8s %-8s Alter %-12s UDP :%-6s %s%s\n' \
                "$pid" "$user" "$(_dauer "$age")" "${port:-?}" "$chain" "$mark"
+        zs=$(_mosh_zustand "$pid"); [ -n "$zs" ] && printf '      └ Zustand:%s\n' "$zs"
 
         if [ "$user" != "$USER" ]; then
             printf '      └ tmux: fremder User, nicht einsehbar\n'
