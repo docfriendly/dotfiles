@@ -194,5 +194,16 @@ set-hook -g window-layout-changed 'run-shell "{{ .chezmoi.homeDir }}/.config/tmu
 bind-key -T root MouseDown1StatusRight choose-window
 bind-key -T root MouseDown1StatusLeft choose-session
 
+# Fenster-Tabs per Maus umsortieren: Tab anklicken und über einen anderen Tab
+# ziehen -> tauscht die Plätze, Fokus folgt dem gezogenen Fenster. tmux 3.7b hat
+# dafür keine Default-Bindung (nur Strg+Klick = Tausch).
+# Warum so umständlich: bei Maus-Events ist das Standard-Quellfenster von
+# swap-window das Fenster UNTER dem Zeiger -> `swap-window -t =` tauscht ein
+# Fenster mit sich selbst (No-op). Deshalb merkt sich MouseDown die Fenster-ID
+# (set -gF, sonst bleibt das Format unexpandiert) und MouseDrag nutzt sie als -s.
+# run-shell, weil swap-window -s kein Format expandiert.
+bind-key -T root MouseDown1Status { switch-client -t = ; set -gF @drag_win "#{window_id}" }
+bind-key -T root MouseDrag1Status { run-shell "tmux swap-window -d -s '#{@drag_win}' -t '#{window_id}' ; tmux select-window -t '#{@drag_win}'" }
+
 # Initialize TMUX plugin manager (keep this line at the very bottom of tmux.conf)
 run '{{ .chezmoi.homeDir }}/.config/tmux/plugins/tpm/tpm'
