@@ -1,0 +1,43 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+# xfce4-panel.xml: Quelle + Live-"recent" des Whisker-Menüs
+# ═══════════════════════════════════════════════════════════════════════════
+# Das Whisker-Menü schreibt bei jedem Programmstart die Property "recent"
+# (zuletzt gestartete Programme) um. Damit driftet die Live-Datei ständig von
+# der Quelle weg: Dauer-Diff + chezmoi-Rückfrage "has changed since chezmoi
+# last wrote it", die ohne TTY den ganzen apply abbricht.
+#
+# Lösung: chezmoi gibt hier die Live-Datei auf stdin, wir geben die Quelle
+# (.chezmoitemplates/xfce4-panel.xml) aus, ersetzen aber deren "recent"-Block
+# durch den der Live-Datei. Fehlt er live, bleibt der aus der Quelle.
+# Panel-Änderungen deshalb in .chezmoitemplates/xfce4-panel.xml einpflegen
+# (kein chezmoi re-add mehr möglich).
+set -eu
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+cat > "$tmp/live.xml"
+cat > "$tmp/src.xml" <<'XML_EOF'
+{{ include ".chezmoitemplates/xfce4-panel.xml" -}}
+XML_EOF
+
+# recent-Block (flach, bis zum ersten </property>) aus der Live-Datei ziehen
+awk '
+  /<property name="recent" type="array">/ { in_blk = 1 }
+  in_blk { print }
+  in_blk && /<\/property>/ { exit }
+' "$tmp/live.xml" > "$tmp/recent.xml"
+
+if [ -s "$tmp/recent.xml" ]; then
+  awk -v blk="$tmp/recent.xml" '
+    /<property name="recent" type="array">/ {
+      while ((getline line < blk) > 0) print line
+      skipping = 1
+    }
+    skipping { if (/<\/property>/) skipping = 0; next }
+    { print }
+  ' "$tmp/src.xml"
+else
+  cat "$tmp/src.xml"
+fi
