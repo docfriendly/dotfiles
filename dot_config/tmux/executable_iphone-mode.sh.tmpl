@@ -41,6 +41,8 @@ if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true"
   # keinen Platz mehr -- die dadurch freien 3 Zellen gehen direkt an
   # _name_trunc (vorher 4).
   _tab_w=8
+  _marker_w=2
+  _flags_w=2
   _name_trunc=7
   _scroll_speed=1
 else
@@ -58,6 +60,12 @@ else
   # und brauchen hier keinen Platz mehr -- die dadurch freien 3 Zellen gehen
   # direkt an _name_trunc (vorher 10).
   _tab_w=14
+  # Marker-/Flag-Bereich hier 3 statt 2 breit: ▶ (PiP, 1 Zelle) + 🔍 (Zoom,
+  # 2 Zellen) zusammen = 3 -- bei 2 lief Zeile 1 um 1 Zelle ueber und das
+  # "┐" sass versetzt zum "┘" (Fund 06.10.2026, nc-fax: gezoomtes PiP-Fenster).
+  # iPhone-Zweig bleibt bei 2 (zu schmal fuer mehr).
+  _marker_w=3
+  _flags_w=3
   _name_trunc=13
   _scroll_speed=3
 fi
@@ -147,8 +155,6 @@ _pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=
 # rutschte sichtbar nach rechts). _marker_w=2 reicht fuer PiP/Zoom/🔗 EINZELN
 # -- mehrere gleichzeitig (seltener Edge-Case, z.B. ein gezoomtes PiP-
 # Fenster) koennen minimal ueberlaufen, genau wie bei den Flags unten.
-_marker_w=2
-_flags_w=2
 _num_area_w=$(( _tab_w - _marker_w - _flags_w - 2 ))
 _num_center_m=$(( (_num_area_w + 1) / 2 ))
 _pip_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
