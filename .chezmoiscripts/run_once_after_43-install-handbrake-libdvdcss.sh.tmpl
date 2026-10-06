@@ -42,7 +42,9 @@ else
   sudo apt-get install -y handbrake
 fi
 
-if ldconfig -p | grep -q 'libdvdcss\.so\.2'; then
+# Kein "grep -q": beendet sich beim ersten Treffer, ldconfig bekommt SIGPIPE
+# und pipefail wertet die Pipeline als Fehler (Race, schlug nach dem Build zu).
+if ldconfig -p | grep 'libdvdcss\.so\.2' >/dev/null; then
   echo "==> libdvdcss bereits vorhanden, überspringe."
 else
   echo "==> Installiere libdvd-pkg (Build zunächst aus)..."
@@ -95,7 +97,7 @@ else
   echo "libdvd-pkg libdvd-pkg/build boolean true" | sudo debconf-set-selections
   sudo dpkg-reconfigure -f noninteractive libdvd-pkg
 
-  ldconfig -p | grep -q 'libdvdcss\.so\.2' \
+  ldconfig -p | grep 'libdvdcss\.so\.2' >/dev/null \
     || { echo "!! libdvdcss wurde nicht gebaut."; exit 1; }
 fi
 {{ end -}}
