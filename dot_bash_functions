@@ -1,6 +1,7 @@
 # ~/.bash_functions -- größere Shell-Funktionen (von ~/.bash_aliases geladen).
 # Enthält: sessions und seine Hilfen (_ssh_ports, _ss_portfilter, _sessions_*, _dauer,
 # _mosh_zustand). Nutzt zur Laufzeit _hinweis/_reltime_prefix aus ~/.bash_aliases.
+# Außerdem: findgrep/findrg/fd, claudegrep (+ _claudegrep_show), mangrep (+ _mangrep_show_page).
 
 # _ssh_ports: SSH-Port(s) aus /etc/ssh/sshd_config(.d) (world-readable), Default
 # 22. Nimmt `Port N` und `ListenAddress host:N`. Ohne sudo; die autoritative
@@ -500,4 +501,1026 @@ _sessions_audit() {
 
     printf '  established Sockets auf %s mit Prozess:\n' ":${ports// /, :}"
     sudo ss -tnp state established "$(_ss_portfilter $ports)" | sed 's/^/    /'
+}
+
+
+# findgrep [grep-Optionen] <suchbegriff>: durchsucht rekursiv alle Dateien im
+# aktuellen Verzeichnis (außer .git) nach <suchbegriff> (case-insensitive),
+# überspringt Binärdateien, zeigt Dateiname:Zeilennummer:Zeileninhalt und hebt
+# den Treffer im Text farbig hervor. Weitere grep-Optionen (z.B. -w, -v) können
+# vor dem Suchbegriff übergeben werden, das jeweils letzte Argument gilt immer
+# als Suchmuster.
+# Als Funktion statt Alias, weil $1 mitten im Kommando (vor "{} +") gebraucht wird.
+findgrep() {
+    if [ "$#" -eq 0 ]; then
+        echo "Verwendung: findgrep [grep-Optionen] <Suchbegriff>" >&2
+        return 1
+    fi
+    # "${@: -1}" (Leerzeichen vor -1 Pflicht, sonst Verwechslung mit der
+    # ${@:-1}-Default-Wert-Syntax) = letztes Argument = Suchmuster.
+    # "${@:1:$#-1}" = alle Argumente davor (Index 1 bis $#-1) = zusätzliche
+    # grep-Optionen; als Array, damit jede Option beim Aufruf unten ein
+    # eigenes Wort bleibt statt als ein zusammenhängender String durchzugehen.
+    local pattern="${@: -1}"
+    local opts=("${@:1:$#-1}")
+    # find: -type f = nur reguläre Dateien; -not -path '*/.git/*' schließt
+    # Git-internes aus. -exec ... {} + (statt \;) sammelt möglichst viele
+    # Treffer in einem einzigen grep-Aufruf statt pro Datei neu zu starten.
+    # grep: -i case-insensitive, -n Zeilennummer, --color=auto nur bei
+    # Terminal-Ausgabe färben (nicht bei Pipe/Umleitung), -I (groß)
+    # Binärdateien komplett überspringen statt "Binary file X matches".
+    # -- markiert das Ende der Optionen, damit ein Suchmuster, das zufällig
+    # mit "-" beginnt, nicht als (unbekannte) grep-Option missverstanden wird.
+    find . -type f -not -path '*/.git/*' -exec grep -in --color=auto -I "${opts[@]}" -- "$pattern" {} +
+    _hinweis "Es gibt auch das schnellere 'findrg'"
+}
+
+# findrg [rg-Optionen] <suchbegriff>: wie findgrep, aber mit ripgrep (rg) statt
+# find+grep. Respektiert .gitignore automatisch, überspringt .git und
+# Binärdateien von selbst und ist deutlich schneller. rg parst Optionen und
+# Suchmuster selbst, daher kein manuelles Aufteilen der Argumente nötig wie
+# bei findgrep.
+findrg() {
+    if [ "$#" -eq 0 ]; then
+        echo "Verwendung: findrg [rg-Optionen] <Suchbegriff>" >&2
+        return 1
+    fi
+    # -i case-insensitive wie bei grep. "$@" statt einzelnem $1, weil rg
+    # (anders als findgrep oben) selbst erkennt, was Option, Pfad oder
+    # Suchmuster ist -- kein manuelles Aufteilen der Argumente nötig.
+    rg -i "$@"
+}
+
+# fd-Wrapper: fd (im Gegensatz zu z.B. rg) zeigt versteckte Dateien/Ordner nur
+# mit -H/--hidden, was leicht übersehen wird. Statt fd standardmäßig auf -H
+# umzustellen (würde .git & Co. mit reinziehen, da fd .git nur über
+# .gitignore-artige Ignore-Regeln kennt, nicht als Sonderfall) gibt es bei
+# wenigen Treffern einen Hinweis auf -H/-u. -H/-u im Aufruf bereits gesetzt ->
+# reiner Passthrough ohne Hinweis, ohne Zwischenpuffern (Live-Streaming/Farbe
+# von fd bleiben unangetastet).
+fd() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            -H|--hidden|-u|--unrestricted*)
+                command fd "$@"
+                return
+                ;;
+        esac
+    done
+
+    # --color=$color statt fd selbst über die eigene TTY-Erkennung
+    # entscheiden zu lassen: die Ausgabe wird unten in $out abgefangen (um
+    # die Trefferzahl zu zählen), dabei sieht fd stdout nicht mehr als
+    # Terminal und würde Farben sonst von sich aus abschalten.
+    local color=auto
+    [[ -t 1 ]] && color=always
+
+    local out
+    out=$(command fd --color="$color" "$@")
+    local status=$?
+
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+
+    if (( status == 0 )); then
+        local count=0
+        [[ -n "$out" ]] && count=$(grep -c '' <<<"$out")
+        if (( count <= 5 )); then
+            _hinweis "versteckte Dateien: -H, alles inkl. .git: -u"
+        fi
+    fi
+
+    return "$status"
+}
+
+
+# claudegrep [--all] [--lines N] <suchbegriff> [Verzeichnis]: durchsucht
+# Claude-Code-Session-Logs (Standard: ~/.claude/projects/**/*.jsonl) nach
+# <suchbegriff> im Text von User-/Assistant-Nachrichten (case-insensitive).
+# Ignoriert thinking-/tool_use-/tool_result-Blöcke, da dort nur Rauschen
+# (Tool-Output, Denkprotokolle) statt lesbarem Text steht -- genau das, was
+# findgrep/findrg auf den rohen JSONL-Dateien mitausgeben würden. Zeigt statt
+# der JSON-Rohzeile pro Treffer Zeitstempel, Rolle sowie den (von Claude Code
+# automatisch generierten oder manuell gesetzten) Session-Titel -- deutlich
+# aussagekräftiger als der reine Projektpfad, der bei Sessions direkt in
+# TMP/ oder SECOND_BRAIN/ oft nur den generischen Oberordner zeigt; der Pfad
+# steht trotzdem gedimmt in Klammern dahinter. Treffer farbig hervorgehoben.
+# Nach Session gruppiert: der (fett hervorgehobene) Titel/Pfad-Header inkl.
+# "="-Trennlinie wird nur einmal pro Session gezeigt, weitere Treffer
+# derselben Session folgen eingerückt direkt darunter (siehe Kommentar bei
+# "foreach" unten). Zeitstempel werden von UTC (so speichert Claude Code sie)
+# in Lokalzeit umgerechnet; das Datum steht als eigene "── TT.MM.JJ ──"-
+# Zwischenzeile nur bei Wechsel (Sessionwechsel oder Tageswechsel innerhalb
+# einer Session), pro Treffer-Zeile nur noch "HH:MM". Rolle einbuchstabig als
+# "h" (harry, User-Nachricht) / "c" (claude, Assistant-Nachricht).
+# Standardmäßig wird jeder Treffer auf eine einzige Zeile begrenzt: die
+# Breite des Ausschnitts um den ersten Treffer richtet sich nach der
+# tatsächlichen Terminalbreite (abzüglich des Zeitstempel/Rolle-Präfixes),
+# nicht nach einer festen Zeichenzahl -- lange Nachrichten (z.B.
+# Context-Compaction-Zusammenfassungen) würden sonst seitenweise Kontext
+# ausgeben, in dem der Treffer selbst kaum auffindbar ist, und ein zu breiter
+# fester Ausschnitt würde auf schmalen Terminals umbrechen statt eine Zeile
+# zu bleiben. --lines N zeigt stattdessen bis zu N Zeilen um den Treffer
+# (an Wortgrenzen umgebrochen, Folgezeilen unter dem Ausschnitt eingerückt)
+# -- praktisch auf schmalen Terminals (z.B. iPhone-SSH-Client), wo eine
+# einzige Zeile kaum Kontext zeigt. Mit --all wird die komplette Nachricht
+# gezeigt (kann mehrere Zeilen/den Bildschirm füllen).
+# "claudegrep show <ID|Suchbegriff>" öffnet stattdessen die komplette Session
+# im Pager (siehe _claudegrep_show unten); die kurze Session-ID steht dafür in
+# jeder Kopfzeile in Klammern.
+claudegrep() {
+    # --all und --lines können an beliebiger Position stehen -- while+case
+    # statt der alten for-Schleife, weil --lines seinen Wert aus dem
+    # NÄCHSTEN Argument liest (shift 2) und eine einfache for-a-in-Schleife
+    # dafür keinen Zugriff auf "das nächste Element" bietet.
+    local all=0
+    local lines_opt=1
+    local args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --all)
+                all=1
+                shift
+                ;;
+            --lines)
+                lines_opt="$2"
+                shift 2
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    if [ "${#args[@]}" -eq 0 ]; then
+        echo "Verwendung: claudegrep [--all] [--lines N] <Suchbegriff> [Verzeichnis]" >&2
+        echo "            claudegrep show <Session-ID-Präfix | Suchbegriff>" >&2
+        return 1
+    fi
+    # Unterbefehl "show": ganze Session im Pager (siehe _claudegrep_show).
+    # Nur bei genau "show <X>" und wenn X kein existierendes Verzeichnis ist --
+    # sonst bliebe "claudegrep show ~/irgendwo" (Suche nach dem Wort "show" in
+    # einem Verzeichnis) unerreichbar.
+    if [ "${args[0]}" = "show" ] && [ "${#args[@]}" -eq 2 ] && [ ! -d "${args[1]}" ]; then
+        _claudegrep_show "${args[1]}"
+        return
+    fi
+    # Nur echte positive Ganzzahlen zulassen -- eine leere/falsche Eingabe
+    # (z.B. "--lines" ohne Wert am Ende der Argumentliste, oder Buchstaben)
+    # würde sonst als Textbaustein in $lines_opt landen und erst in jq mit
+    # einer kryptischen Fehlermeldung auffallen.
+    case "$lines_opt" in
+        ''|*[!0-9]*|0)
+            echo "Verwendung: claudegrep [--all] [--lines N] <Suchbegriff> [Verzeichnis]  (N muss eine positive Zahl sein)" >&2
+            return 1
+            ;;
+    esac
+    local pattern="${args[0]}"
+    # Zweites Argument = einzelnes Suchverzeichnis. Ohne Angabe: Claude-Code-
+    # Sessions plus (falls vorhanden) die per `claudeai-import` umgewandelten
+    # claude.ai-Chats aus ~/.claude/claude-ai-export. Nur existierende Ordner
+    # aufnehmen -- grep -r/find auf einen fehlenden Pfad meldet Fehler (rc 2)
+    # und würde unten fälschlich den Fallback ohne Vorfilter auslösen.
+    local dirs=()
+    if [ -n "${args[1]}" ]; then
+        dirs=("${args[1]}")
+    else
+        dirs=("$HOME/.claude/projects")
+        [ -d "$HOME/.claude/claude-ai-export" ] && dirs+=("$HOME/.claude/claude-ai-export")
+    fi
+    # $'\033[...' = Bash-ANSI-C-Quoting; \033 ist das ESC-Byte (oktal 33 =
+    # dezimal 27), gefolgt vom SGR-Farbcode: 36 cyan, 33 gelb, 1;35 fett+
+    # magenta, 2 gedimmt, 1;31 fett+rot, 0 = zurücksetzen.
+    local c_ts=$'\033[36m' c_role=$'\033[33m' c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+
+    # Terminalbreite ermitteln (für Ausschnittsbreite und Trennlinie unten).
+    # </dev/tty statt Default-stdin: claudegrep wird oft in eine Pipe (z.B.
+    # "| less") gehängt, dann zeigt stdout selbst keine Terminalbreite mehr,
+    # das echte Terminal bleibt aber über /dev/tty erreichbar. 2>/dev/null
+    # VOR </dev/tty (Reihenfolge zählt!): schlägt das Öffnen von /dev/tty
+    # fehl (z.B. in einem Cronjob ganz ohne Terminal), soll die Fehlermeldung
+    # unterdrückt werden -- das geht nur, wenn stderr schon umgeleitet ist,
+    # BEVOR die fehlschlagende Umleitung an die Reihe kommt.
+    local cols
+    cols=$(tput cols 2>/dev/null </dev/tty)
+    [ -n "$cols" ] || cols=80
+
+    # Vorfilter mit grep -P statt sofort auf alle Dateien mit jq loszugehen:
+    # jq muss pro Zeile erst das komplette JSON parsen, bevor $pattern
+    # getestet werden kann -- das dominiert die Laufzeit fast vollständig
+    # (Messung: 4s für ~217MB bei einem häufigen Suchwort, obwohl derselbe
+    # Bestand mit rohem grep in 17ms durchsucht ist -- Faktor ~240). Mit
+    # cleanupPeriodDays jetzt auf 10 Jahre (statt 30 Tage) gesetzt gibt es
+    # kein automatisches Volumenlimit mehr, das jq-only-Laufzeiten klein
+    # hält; bei linearer Skalierung wären das bei den in 2 Jahren erwarteten
+    # ~5GB rund 90s pro Suche. -P (PCRE) statt -E (POSIX ERE), weil jqs
+    # Regex-Dialekt (Oniguruma) PCRE-nahe Konstrukte wie \d, \s, (?:...)
+    # kennt, die POSIX ERE nicht versteht -- -P kommt dem, was $pattern in
+    # jq bewirkt, näher als -E. -Z (NUL-getrennte Ausgabe) + Ablage in einer
+    # Datei statt eines Bash-Arrays, damit die Liste unten per `xargs -0`
+    # ohne eigenes Chunking (bei sehr vielen Dateien sonst Gefahr von
+    # "Argument list too long") an grep/jq weitergereicht werden kann --
+    # dieselbe automatische Aufteilung, die vorher `find -exec {} +` schon
+    # geleistet hat.
+    local filelist
+    filelist=$(mktemp)
+    grep -rlZiP --include='*.jsonl' -- "$pattern" "${dirs[@]}" > "$filelist" 2>/dev/null
+    local grep_rc=$?
+    if [ "$grep_rc" -eq 1 ]; then
+        # Exit 1 = Muster syntaktisch gültig, aber in keiner Datei
+        # enthalten -- jq würde ebenfalls nichts finden, kann also
+        # komplett übersprungen werden.
+        rm -f "$filelist"
+        return 0
+    elif [ "$grep_rc" -gt 1 ]; then
+        # Exit >1 = echter Fehler (z.B. $pattern ist gültiges
+        # jq/Oniguruma-Regex, aber kein gültiges PCRE) -- Vorfilter
+        # unzuverlässig, also NICHT stillschweigend Treffer verschlucken,
+        # sondern zurückfallen auf die ungefilterte Originalvariante (alle
+        # Dateien, kein Vorfilter -- dann wieder mit der alten Laufzeit,
+        # aber korrekt).
+        find "${dirs[@]}" -name '*.jsonl' -type f -print0 > "$filelist"
+    fi
+    if [ ! -s "$filelist" ]; then
+        rm -f "$filelist"
+        return 0
+    fi
+
+    # Session-Titel vorab einsammeln (sessionId -> Titel): Claude Code
+    # schreibt pro Session ai-title (automatisch generiert) und optional
+    # custom-title (manuell überschrieben) als eigene JSONL-Zeilen. Nur noch
+    # über $filelist (die vorgefilterten Kandidaten) statt über das
+    # komplette Archiv -- Titel für Sessions ohne Treffer werden unten
+    # ohnehin nie nachgeschlagen. grep filtert diese wenigen Zeilen vor (die
+    # Objekte selbst reichen als reiner Text zum Erkennen, ohne dass grep
+    # sie parsen müsste) -- ohne diesen Vorfilter müsste jq jede Datei
+    # komplett durchparsen nur um die paar Titel-Zeilen zu finden.
+    # `{(.sessionId): (.customTitle // .aiTitle)}` baut pro Zeile ein
+    # Ein-Schlüssel-Objekt; `jq -s 'add'` merged alle zu einem Objekt, wobei
+    # bei doppeltem sessionId (ai-title zuerst, später manuell umbenannt zu
+    # custom-title) der chronologisch letzte Eintrag gewinnt.
+    local titlemap
+    titlemap=$(mktemp)
+    xargs -0 grep -hE '"type": ?"(ai-title|custom-title)"' < "$filelist" 2>/dev/null \
+        | jq -c '{(.sessionId): (.customTitle // .aiTitle)}' \
+        | jq -s 'add // {}' > "$titlemap"
+
+    # xargs -0 statt find -exec: die Dateiliste steht schon in $filelist
+    # (vorgefiltert oder im Fallback alle *.jsonl), xargs übernimmt nur noch
+    # das automatische Aufteilen in mehrere jq-Aufrufe, falls die Liste zu
+    # lang für eine einzelne Kommandozeile wird (dieselbe Rolle wie vorher
+    # `find -exec ... {} +`).
+    # jq: -r ("raw output") gibt Strings ohne umschließende "..." aus, sonst
+    # würde jq jeden String als JSON-Literal mit Anführungszeichen liefern.
+    # --arg name wert übergibt eine Bash-Variable als jq-Variable $name (als
+    # String) -- nötig, weil das jq-Programm in '...' steht und daher keine
+    # Bash-Variablen-Expansion darin stattfindet. --slurpfile lädt die oben
+    # gebaute Titel-Map als jq-Variable $tmap (Array mit einem Element, dem
+    # geparsten JSON-Objekt aus der Datei).
+    #
+    # -n (null input) + "foreach inputs as $r": normalerweise verarbeitet jq
+    # automatisch jede JSON-Zeile als eigenen "Durchlauf" durch die ganze
+    # Pipeline (das war die Basis der vorherigen, ungruppierten Version).
+    # Für die Gruppierung wird aber Zustand über mehrere Zeilen hinweg
+    # gebraucht ("welche sessionId hatte der letzte ausgegebene Treffer?"),
+    # und das geht nur mit manueller Iteration über "inputs" statt der
+    # impliziten Pro-Zeile-Verarbeitung. Das Filtern (welche Zeilen zählen
+    # überhaupt als Treffer) läuft dafür vorab in der def "hit" -- so sieht
+    # "foreach" nur noch echte Treffer und muss selbst keine "kein Treffer"-
+    # Fälle mehr unterscheiden. "foreach EXPR as $var (INIT; UPDATE;
+    # EXTRACT)" hält einen Zustand über die gesamte Eingabe hinweg: UPDATE
+    # berechnet pro Treffer den neuen Zustand, EXTRACT liefert daraus die
+    # Ausgabe -- $var bleibt dabei auch in EXTRACT gültig, UPDATE muss also
+    # nur vermerken OB sich die Session geändert hat, nicht das fertige
+    # Ausgabe-Format mitschleppen. Wichtig für die Gruppierung: jq liest bei
+    # mehreren Dateiargumenten (wie hier durch das gebündelte find-exec
+    # oben) jede Datei komplett hintereinander aus, bevor die nächste
+    # beginnt -- Treffer derselben Session (= eine JSONL-Datei) liegen
+    # dadurch im Eingabestrom immer schon zusammen, ohne dass vorher
+    # sortiert werden müsste.
+    xargs -0 jq -n -r \
+        --arg p "$pattern" \
+        --arg all "$all" \
+        --argjson cols "$cols" \
+        --argjson lines "$lines_opt" \
+        --slurpfile tmap "$titlemap" \
+        --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
+        --arg c_hit "$c_hit" --arg c_off "$c_off" '
+        # highlight($s): umschließt jeden Treffer von $p in $s mit Farbcode
+        # (case-insensitive). gsub("(?<m>"+$p+")"; ...; "i"): globales
+        # Suchen&Ersetzen mit benannter Capture-Gruppe "m"; im Replacement
+        # über \(.m) wieder eingesetzt. Eigene def, weil dieselbe Ersetzung
+        # unten an zwei Stellen auf unterschiedlichem Text läuft (kompletter
+        # Text bei --all, nur der Fenster-Ausschnitt sonst) -- so bleibt der
+        # Suchen&Ersetzen-Ausdruck nur einmal geschrieben.
+        def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
+
+        # wrap($width): zerlegt einen String in ein Array von Zeilen, die
+        # (an Leerzeichen entlang, klassischer "greedy" Umbruch) jeweils
+        # höchstens $width Zeichen breit sind. split(" ") + map(select(...))
+        # filtert doppelte Leerzeichen raus (sonst leere "Wörter" im Array,
+        # die als führendes Leerzeichen in der nächsten Zeile aufgetaucht
+        # wären). reduce baut das Zeilen-Array Wort für Wort auf: passt das
+        # nächste Wort noch in die letzte Zeile (inkl. einem Trenn-Leerzeichen),
+        # wird es angehängt, sonst beginnt eine neue Zeile. Kein Silbentrennen
+        # -- ein einzelnes Wort, das breiter als $width ist, bleibt als eigene
+        # (dann zu lange) Zeile stehen, statt mitten im Wort zu brechen.
+        def wrap($width):
+          (. | split(" ") | map(select(. != ""))) as $words
+          | reduce $words[] as $w
+              ([""];
+                (if .[-1] == "" then $w else .[-1] + " " + $w end) as $cand
+                | if (.[-1] == "" or ($cand | length) <= $width)
+                  then .[:-1] + [$cand]
+                  else . + [$w]
+                  end);
+
+        def hit:
+          select(.type == "user" or .type == "assistant")
+          # .content ist je nach Nachricht ein String oder ein Array von
+          # Blöcken (Text/Denken/Tool-Aufruf/Tool-Ergebnis) -- hier werden
+          # nur die "text"-Blöcke rausgezogen und zusammengefügt, der Rest
+          # (reines Rauschen für die Suche) bleibt außen vor.
+          | (.message.content
+             | if type == "string" then .
+               else ([.[] | select(.type == "text") | .text] | join(" "))
+               end) as $text
+          # test($p; "i"): Regex-Test (nur ja/nein), "i" = case-insensitive.
+          | select($text != "" and ($text | test($p; "i")))
+          | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text};
+
+        foreach (inputs | hit) as $r
+          ( {prev: null, prevdate: null};
+            # "first" merkt sich (aus dem ALTEN .prev, vor dem Überschreiben
+            # in dieser Zeile), ob dies der allererste Treffer überhaupt ist
+            # -- nur dann ist .prev noch null. So lässt sich unten "neue
+            # Gruppe, aber nicht die allererste" erkennen, um dort (und nur
+            # dort) eine Leerzeile einzufügen, ohne dass ganz oben in der
+            # Ausgabe eine überflüssige führende Leerzeile entsteht.
+            #
+            # $curdate: lokales Datum dieses Treffers, hier (statt erst in
+            # EXTRACT) berechnet, weil es sowohl zum Vergleich mit .prevdate
+            # als auch als neuer Zustand gebraucht wird -- EXTRACT liest es
+            # unten einfach aus .prevdate zurück, keine doppelte Berechnung.
+            # $sidchanged trägt zu $datechanged bei: bei jedem Sessionwechsel
+            # soll das Datum immer neu angezeigt werden (auch wenn es
+            # zufällig mit dem Datum der letzten Zeile der vorigen Session
+            # übereinstimmt) -- sonst müsste man beim Lesen nach oben scrollen,
+            # um das Datum der neuen Gruppe zu erfahren.
+            ($r.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime
+             | strftime("%d.%m.%y")) as $curdate
+            | ($r.sid != .prev) as $sidchanged
+            | {prev: $r.sid, prevdate: $curdate, changed: $sidchanged,
+               datechanged: ($sidchanged or ($curdate != .prevdate)),
+               first: (.prev == null)};
+            # Titel-/Pfad-Header nur berechnen und ausgeben, wenn die Session
+            # gegenüber dem letzten Treffer gewechselt hat -- sonst reine
+            # Verschwendung, da er sofort verworfen würde. // ist der
+            # "Alternative"-Operator: rechter Wert, falls .cwd fehlt/null ist
+            # (Fallback). $tmap[0][$r.sid] schlägt die aktuelle Session im
+            # Titel-Objekt nach; ohne Treffer (z.B. noch laufende Session
+            # ohne Titel-Zeile) bleibt $title null und der Pfad allein wird
+            # angezeigt.
+            # Trennlinie ("═" * Breite): jq wiederholt einen String bei
+            # Multiplikation mit einer Zahl n-mal. "═" (U+2550, fette
+            # Box-Zeichnung) statt schlichtem "=", passend zum ═-Boxenstil
+            # der restlichen Datei (siehe Abschnitts-Header oben). Fix 60
+            # Zeichen breit statt Terminalbreite -- eine volle Bildschirm-
+            # breite wirkte auf breiten Terminals zu dominant; [$cols, 60]|min
+            # verhindert trotzdem ein Überlaufen auf schmalen Terminals.
+            (if .changed then
+               (if .first then "" else "\n" end) as $lead
+               | ($tmap[0][$r.sid] // null) as $title
+               | $lead + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\($r.cwd) · \($r.sid[0:8]))\($c_off)"
+                          else "\($c_loc)\($r.cwd)\($c_off) \($c_dim)(\($r.sid[0:8]))\($c_off)" end)
+               + "\n" + $c_dim + ("═" * ([$cols, 60] | min)) + $c_off + "\n"
+             else "" end) as $header
+            # Datums-Zwischenzeile: nur ausgeben, wenn sich das Datum
+            # gegenüber dem letzten Treffer geändert hat (.datechanged kommt
+            # oben aus UPDATE, inkl. Sessionwechsel-Fall). .prevdate enthält
+            # in EXTRACT bereits das Datum DIESES Treffers (UPDATE hat es
+            # gerade dort abgelegt) -- keine erneute Berechnung nötig. Eigene,
+            # dünnere "─"-Linie (U+2500) statt der dicken "═"-Trennlinie oben,
+            # damit die Datumszeile optisch klar unter dem Session-Header
+            # steht und nicht mit ihm verwechselt wird.
+            | (if .datechanged then "  \($c_dim)── \(.prevdate) ──\($c_off)\n" else "" end) as $datehdr
+            # $r.ts kommt als ISO8601-UTC ("...T...Z", mit Millisekunden) --
+            # sub(...) entfernt die Millisekunden (fromdateiso8601 erwartet
+            # exakt "%Y-%m-%dT%H:%M:%SZ", an Nachkommastellen scheitert es
+            # sonst), fromdateiso8601 wandelt in Unix-Timestamp (UTC),
+            # localtime wandelt (systemabhängig über die TZ-Umgebung) in
+            # lokale Zeit um -- ohne diesen Schritt stünde UTC-Zeit da, in
+            # meiner Zeitzone (Sommerzeit) zwei Stunden hinter der Wanduhr.
+            # Nur noch die Uhrzeit (das Datum steht jetzt in $datehdr) --
+            # macht das Präfix jeder Treffer-Zeile deutlich kürzer, wichtig
+            # auf schmalen Terminals (z.B. iPhone-SSH-Client).
+            | ($r.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime
+               | strftime("%H:%M")) as $tsplain
+            # "h"/"c" statt "user"/"assistant": h wie harry (Userrolle), c wie
+            # claude (Assistant-Rolle).
+            | (if $r.role == "assistant" then "c" else "h" end) as $roleabbr
+            # $prefixlen = sichtbare Breite von Zeitstempel+Rolle-Präfix
+            # (ohne Farbcodes, die zählen für die Terminal-Spaltenbreite
+            # nicht mit) -- aus dem tatsächlichen Text berechnet statt als
+            # Zahl fest hinzuschreiben, damit sie bei einer künftigen
+            # Formatänderung automatisch stimmt. $avail = Rest der
+            # Terminalbreite, die für den Treffer-Ausschnitt bleibt; min. 10,
+            # damit auf sehr schmalen Terminals nichts Negatives/Winziges
+            # herauskommt.
+            | ("  \($tsplain) \($roleabbr): " | length) as $prefixlen
+            | (if ($cols - $prefixlen) > 10 then ($cols - $prefixlen) else 10 end) as $avail
+            | (if $all == "1" then
+                 highlight($r.text)
+               else
+                 # match($p; "i"): wie test, liefert zusätzlich die
+                 # Fundstelle (.offset/.length) des ersten Treffers -- daraus
+                 # wird unten das Fenster drumrum berechnet (mit
+                 # Rand-Clamping auf 0 bzw. Textende) und per Slicing
+                 # ($r.text[$start:$end]) rausgeschnitten. $half = Platz je
+                 # Seite des Treffers: von $budget (= $avail, mit --lines
+                 # N vervielfacht) zieht -2 Reserve für die beiden möglichen
+                 # "…"-Ellipsen ab, und -$mt.length, weil der Treffer selbst
+                 # auch im Fenster steht und daher zum Budget zählt
+                 # (Fenstergröße gesamt = $half + Treffer + $half); ohne
+                 # diesen letzten Abzug wäre das Fenster immer um die
+                 # Trefferlänge zu breit.
+                 ($avail * $lines) as $budget
+                 | ($r.text | match($p; "i")) as $mt
+                 | ($r.text | length) as $tlen
+                 | ((($budget - 2 - $mt.length) / 2 | floor) as $h
+                    | if $h > 0 then $h else 0 end) as $half
+                 | (if ($mt.offset - $half) > 0 then ($mt.offset - $half) else 0 end) as $start
+                 | (if ($mt.offset + $mt.length + $half) < $tlen then ($mt.offset + $mt.length + $half) else $tlen end) as $end
+                 | ($r.text[$start:$end] | gsub("\n"; " ")) as $window
+                 # $window ist char-genau auf $budget zugeschnitten, aber
+                 # noch eine einzige lange Zeile -- wrap(...) bricht sie an
+                 # Wortgrenzen auf gleich breite Zeilen um. Breite $avail - 1
+                 # statt $avail: pro Zeile ist maximal EIN Zeichen Puffer für
+                 # eine später angehängte "…"-Ellipse nötig (vorne bei $pre,
+                 # hinten bei $post) -- wrap selbst weiß beim Umbrechen noch
+                 # nicht, welche Zeile das treffen wird, daher pauschal 1
+                 # Zeichen auf allen Zeilen reserviert statt nachträglich neu
+                 # zu umbrechen. Bei --lines 1 (Default) ist $budget == $avail,
+                 # wrap liefert dann so gut wie immer genau eine Zeile zurück
+                 # -- Verhalten bleibt damit für den Default-Fall praktisch
+                 # unverändert (nur 1 Zeichen schmaler als vorher).
+                 | ($window | wrap($avail - 1)) as $wraplines
+                 | ($wraplines | length) as $wc
+                 # Mehr umgebrochene Zeilen vorhanden als $lines erlaubt?
+                 # Dann werden die überzähligen abgeschnitten und $post
+                 # (Ellipse am Ende) erzwungen -- unabhängig davon, ob der
+                 # ORIGINALTEXT an der Stelle schon zu Ende war.
+                 | ($wraplines[0:$lines]) as $kept
+                 | ($wc > $lines) as $wraptruncated
+                 # Jede behaltene Zeile einzeln highlighten (nicht erst
+                 # zusammenfügen und dann highlighten) -- gsub würde sonst
+                 # theoretisch über eine Zeilengrenze hinweg matchen und die
+                 # Färbung so verschieben, dass sie nicht mehr zur later
+                 # eingefügten Einrückung passt. Ab Zeile 2 wird mit
+                 # $prefixlen Leerzeichen eingerückt, damit der Text unter
+                 # dem eigentlichen Ausschnitt (nach "HH:MM h: ") weiterläuft
+                 # statt am linken Rand.
+                 | ($kept | to_entries | map(
+                     (if .key == 0 then "" else "\n" + (" " * $prefixlen) end)
+                     + highlight(.value)
+                   ) | join("")) as $hwindow
+                 | (if $start > 0 then "…" else "" end) as $pre
+                 | (if ($end < $tlen) or $wraptruncated then "…" else "" end) as $post
+                 | "\($pre)\($hwindow)\($post)"
+               end) as $bodytext
+            # Kein abschließendes "\n" hier: jq -r hängt nach jedem Wert, den
+            # foreach/EXTRACT ausgibt, ohnehin automatisch einen Zeilenumbruch
+            # an -- ein zusätzliches "\n" in diesem String hätte pro Treffer
+            # eine Leerzeile erzeugt.
+            | "\($header)\($datehdr)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
+          )
+    ' < "$filelist"
+    rm -f "$titlemap" "$filelist"
+}
+
+# claudegrep show <Session-ID-Präfix | Suchbegriff> (Hilfsfunktion von
+# claudegrep, nicht direkt aufrufen): zeigt eine komplette Session
+# (Claude-Code oder importierter claude.ai-Chat) im Pager. Nur text-Blöcke von
+# User/Assistant, wie bei claudegrep -- kein Tool-Output. Argument =
+# mindestens 6 Hex-Zeichen der Session-ID (steht in claudegrep-Kopfzeilen in
+# Klammern) ODER ein Suchbegriff: dann Auswahl unter allen Sessions mit
+# Treffer (fzf; bei genau einer Session ohne Rückfrage) und less startet an
+# der ersten Fundstelle (n/N = nächster/voriger Treffer, q = Ende).
+_claudegrep_show() {
+    if [ $# -ne 1 ] || [ -z "$1" ]; then
+        echo "Verwendung: claudegrep show <Session-ID-Präfix | Suchbegriff>" >&2
+        return 1
+    fi
+    local arg="$1" file="" pat=""
+    local roots=("$HOME/.claude/projects")
+    [ -d "$HOME/.claude/claude-ai-export" ] && roots+=("$HOME/.claude/claude-ai-export")
+
+    # ID-Präfix? Sessiondateien heißen <sessionId>.jsonl; -maxdepth 2 lässt
+    # Subagent-Logs (tiefer verschachtelt) aus. Gleiche ID in mehreren
+    # Projekt-Namespaces (Altlast-Duplikate): neueste Datei gewinnt.
+    if [[ "$arg" =~ ^[0-9a-f]{6,}(-[0-9a-f]+)*$ ]]; then
+        file=$(find "${roots[@]}" -maxdepth 2 -type f -name "${arg}*.jsonl" -printf '%T@ %p\n' 2>/dev/null \
+            | sort -rn | head -1 | cut -d' ' -f2-)
+    fi
+
+    if [ -z "$file" ]; then
+        pat="$arg"
+        local cands
+        cands=$(grep -rlZiP --include='*.jsonl' -- "$pat" "${roots[@]}" 2>/dev/null \
+            | tr '\0' '\n' | grep -E '/[0-9a-f-]{36}\.jsonl$')
+        if [ -z "$cands" ]; then
+            echo "claudegrep show: keine Session mit '$pat' gefunden" >&2
+            return 1
+        fi
+        local menu="" f ts title cwd
+        while IFS= read -r f; do
+            ts=$(grep -m1 -oP '"timestamp": ?"\K[^"]+' "$f")
+            title=$(grep -hE '"type": ?"(ai-title|custom-title)"' "$f" | tail -1 \
+                | jq -r '.customTitle // .aiTitle' 2>/dev/null)
+            cwd=$(grep -m1 -oP '"cwd": ?"\K[^"]+' "$f")
+            menu+=$(printf '%s\t%s\t%s\t%s' "$(date -d "$ts" '+%Y-%m-%d %H:%M' 2>/dev/null)" \
+                "${title:-(ohne Titel)}" "$cwd" "$f")$'\n'
+        done <<< "$cands"
+        # Neueste zuerst; gleiche Session-ID nur einmal (Namespace-Duplikate).
+        menu=$(printf '%s' "$menu" | sort -r \
+            | awk -F'\t' '{n=split($4,a,"/"); if(!seen[a[n]]++) print}')
+        local count pick
+        count=$(printf '%s\n' "$menu" | wc -l)
+        if [ "$count" -eq 1 ]; then
+            pick="$menu"
+        elif command -v fzf >/dev/null 2>&1; then
+            pick=$(printf '%s\n' "$menu" | fzf --delimiter=$'\t' --with-nth=1..3 --tabstop=4 \
+                --prompt='Session > ' --header="$count Sessions mit '$pat'")
+        else
+            local i=0 line
+            while IFS= read -r line; do
+                i=$((i + 1))
+                printf '%3d) %s\n' "$i" "$(cut -f1-3 <<< "$line" | tr '\t' '|')" >&2
+            done <<< "$menu"
+            read -r -p "Nummer: " i
+            pick=$(sed -n "${i}p" <<< "$menu")
+        fi
+        file=$(cut -f4 <<< "$pick")
+        [ -n "$file" ] || return 1
+    fi
+
+    local title
+    title=$(grep -hE '"type": ?"(ai-title|custom-title)"' "$file" | tail -1 \
+        | jq -r '.customTitle // .aiTitle' 2>/dev/null)
+    local c_off=$'\033[0m'
+    {
+        printf '\033[1;35m%s\033[0m \033[2m(%s)\033[0m\n\n' "${title:-(ohne Titel)}" "$(basename "$file" .jsonl)"
+        jq -r --arg c_ts $'\033[36m' --arg c_h $'\033[1;33m' --arg c_c $'\033[1;32m' --arg c_off "$c_off" '
+            def lts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime | strftime("%d.%m.%y %H:%M");
+            select(.type == "user" or .type == "assistant")
+            | (.message.content
+               | if type == "string" then .
+                 else ([.[] | select(.type == "text") | .text] | join("\n\n")) end) as $t
+            | select($t != "")
+            | "\($c_ts)── \(.timestamp | lts) ──\($c_off) "
+              + (if .type == "assistant" then "\($c_c)claude\($c_off)" else "\($c_h)harry\($c_off)" end)
+              + "\n" + $t + "\n"
+        ' "$file"
+    } | if [ -t 1 ]; then
+            local lessopts=(-R -i)
+            [ -n "$pat" ] && lessopts+=("+/$pat")
+            less "${lessopts[@]}"
+        else
+            cat
+        fi
+}
+
+
+# mangrep [--all] [--lines N] [--refresh] <suchbegriff>: durchsucht alle
+# Handbuchseiten im aktuellen `manpath` (inkl. Übersetzungen, z.B.
+# .../de/man1/...) im gerenderten Klartext (nicht im rohen troff-Quelltext
+# wie `man -K`) und zeigt Treffer farbig hervorgehoben, gruppiert nach Seite.
+# Wie `claudegrep` zweistufig: ein billiger Vorfilter sortiert die riesige
+# Masse an Seiten ohne Treffer aus, BEVOR für die wenigen Kandidaten
+# überhaupt `groff` gerendert wird (das ist pro Seite der mit Abstand
+# teuerste Schritt).
+# Der Vorfilter selbst braucht aber einen eigenen Cache: ~10.000 Handbuch-
+# seiten liegen alle gzip-komprimiert vor (kein Volltext-Index existiert
+# irgendwo auf dem System -- mandb indiziert nur die Kurzbeschreibungen für
+# `apropos`, nicht den Seiteninhalt; das ist derselbe Grund, warum auch
+# `man -K` bei jedem Aufruf brute-force neu entpackt). Direktes `zgrep` pro
+# Suche kostet einen `gzip`-Unterprozess PRO Datei (~20s für alle Seiten,
+# gemessen, dominiert von Prozessstart-Overhead, nicht von der Textsuche
+# selbst) -- deshalb wird einmalig ein Klartext-Spiegel unter
+# ~/.cache/mangrep/ angelegt (nur entpackt, nicht gerendert -- das Rendern
+# bleibt weiter Sache des zweiten Schritts, pro Kandidat). Danach läuft der
+# Vorfilter als EIN einzelner `grep -r`-Prozess über den Cache (kein Fork
+# pro Datei mehr) -- gemessen ~0,1s statt ~15-20s. Cache-Aufbau selbst
+# parallelisiert über alle Kerne, einmalig ~15s. Der Cache wird automatisch
+# neu gebaut, wenn eine Man-Seiten-Verzeichnis (z.B. nach `apt install`)
+# jünger als der letzte Cache-Aufbau ist (mtime-Vergleich auf
+# Verzeichnisebene -- ein neuer Verzeichniseintrag aktualisiert die mtime
+# des Elternverzeichnisses, das reicht als Signal ohne alle 10.000 Dateien
+# einzeln per stat abzufragen); --refresh erzwingt den Neubau von Hand.
+# Anders als bei `claudegrep` gibt es hier keine jq-Zustandsmaschine über
+# mehrere Records -- eine Handbuchseite steht für sich, es muss nichts über
+# Aufrufe hinweg gemerkt werden (kein Sessionwechsel/Datumszeile-Äquivalent),
+# daher ein simpler jq-Aufruf pro Kandidatendatei statt eines "foreach" über
+# alle. Wie bei claudegrep wird pro Treffer nur das ERSTE Vorkommen im
+# Fenster gezeigt (nicht alle) -- für die komplette Seite mit allen
+# Vorkommen hervorgehoben: --all.
+# Caveat (roh vs. gerendert): der Vorfilter (und damit auch der Cache) kann
+# sehr selten einen Treffer verpassen, den der gerenderte Text hätte -- wenn
+# der Suchbegriff im troff-Quelltext durch eine Formatierungs-Escape-
+# Sequenz mitten im Wort zerrissen ist (z.B. \fBpass\fRword -> gerendert
+# "password", roh nie als ein zusammenhängender String). Bewusst in Kauf
+# genommen statt dagegen zu bauen, siehe Diskussion zu `man -K`, das
+# dasselbe Problem hat.
+# Zweiter Aufrufmodus (17.09.): `mangrep <kommando> <muster>` (zwei
+# Positionsargumente statt einem) durchsucht NUR die eine Seite, die auch
+# `man <kommando>` öffnen würde -- Ersatz für `man <kommando> | grep -A N
+# -e <muster>`, aber mit Highlighting/Fenster wie sonst und ALLEN
+# Fundstellen (nicht nur der ersten). Braucht keinen Cache/Vorfilter, `man
+# -w` löst die Datei direkt auf.
+# Ist der Korpus-Cache veraltet/fehlt und `rg` ist installiert, blockiert
+# die aktuelle Suche nicht mehr auf den vollen ~15-20s Neubau: `rg -z`
+# durchsucht die .gz-Dateien live (~4s, ohne Cache), der Neubau läuft
+# parallel im Hintergrund für den nächsten Aufruf.
+# Rendert eine einzelne Manpage-Datei ($1 = Pfad) und druckt sie farbig
+# hervorgehoben -- gemeinsamer Kern für den Korpus-weiten Suchmodus
+# (Vorfilter-Loop in mangrep()) UND den gezielten Zwei-Argument-Modus
+# (mangrep <kommando> <muster>). Liest pattern/all/mode/cols/avail/
+# lines_opt/c_* über Bashs dynamisches Scoping aus dem Aufrufer (mangrep())
+# -- kein Subshell dazwischen, daher sind dessen `local`-Variablen hier
+# direkt sichtbar, ohne sie einzeln durchreichen zu müssen.
+# rc 0 = etwas ausgegeben, rc 1 = kein Treffer im gerenderten Text (siehe
+# Roh-vs-gerendert-Caveat oben an mangrep()).
+_mangrep_show_page() {
+    local f="$1"
+
+    # Anzeige-Name/-Abschnitt aus dem Dateinamen ableiten: "ls.1.gz" ->
+    # Name "ls", Abschnitt "1". Erst die Kompressions-Endung weg, dann ist
+    # die letzte verbleibende Punkt-Komponente die Abschnittsnummer.
+    local base="${f##*/}"
+    base="${base%.gz}"; base="${base%.bz2}"; base="${base%.xz}"; base="${base%.Z}"
+    local section="${base##*.}"
+    local name="${base%.*}"
+
+    # `man -l <datei>`: rendert eine bestimmte Datei direkt, unabhängig von
+    # manpath-Suche/Abschnitts-Priorität. --pager=cat erzwingt Klartext-
+    # Ausgabe ohne Pager (auch wenn PAGER/MANPAGER interaktiv gesetzt ist);
+    # `col -bx` entfernt die Backspace-Fettung/Unterstreichung des Groff-
+    # Terminal-Outputs, die sonst als rohe Steuerzeichen im Text stünden.
+    local renderedfile
+    renderedfile=$(mktemp)
+    man --pager=cat -l "$f" 2>/dev/null | col -bx 2>/dev/null > "$renderedfile"
+    if [ ! -s "$renderedfile" ]; then
+        rm -f "$renderedfile"
+        return 1
+    fi
+
+    # Direkt aus einer Datei lesen statt aus einer Bash-Variable: manche
+    # Seiten (generierte Referenzen wie systemd.exec, smb.conf) werden
+    # gerendert >130.000 Zeichen groß -- als jq --arg auf der Kommandozeile
+    # reißt das MAX_ARG_STRLEN (Kernel-Limit PRO Argument, 32 Pages =
+    # 128 KiB, UNABHÄNGIG vom größeren Gesamt-ARG_MAX) und scheitert mit
+    # "Argument list too long", empirisch ab ~140.000 Zeichen reproduziert.
+    # --rawfile liest die Datei direkt ein, ganz ohne argv -- kein Limit.
+    local block
+    block=$(jq -n -r \
+        --arg p "$pattern" --rawfile text "$renderedfile" \
+        --arg name "$name" --arg section "$section" --arg path "$f" \
+        --arg all "$all" --arg mode "$mode" \
+        --argjson cols "$cols" --argjson avail "$avail" --argjson lines "$lines_opt" \
+        --arg c_loc "$c_loc" --arg c_dim "$c_dim" --arg c_hit "$c_hit" \
+        --arg c_sep "$c_sep" --arg c_off "$c_off" '
+        def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
+        def wrap($width):
+          (. | split(" ") | map(select(. != ""))) as $words
+          | reduce $words[] as $w
+              ([""];
+                (if .[-1] == "" then $w else .[-1] + " " + $w end) as $cand
+                | if (.[-1] == "" or ($cand | length) <= $width)
+                  then .[:-1] + [$cand]
+                  else . + [$w]
+                  end);
+        def window($mt):
+          ($avail * $lines) as $budget
+          | ($text | length) as $tlen
+          | ((($budget - 2 - $mt.length) / 2 | floor) as $h | if $h > 0 then $h else 0 end) as $half
+          | (if ($mt.offset - $half) > 0 then ($mt.offset - $half) else 0 end) as $start
+          | (if ($mt.offset + $mt.length + $half) < $tlen then ($mt.offset + $mt.length + $half) else $tlen end) as $end
+          | ($text[$start:$end] | gsub("\n"; " ")) as $win
+          | ($win | wrap($avail - 1)) as $wraplines
+          | ($wraplines | length) as $wc
+          | ($wraplines[0:$lines]) as $kept
+          | ($wc > $lines) as $wraptruncated
+          | ($kept | map(highlight(.)) | join("\n  ")) as $hwindow
+          | (if $start > 0 then "…" else "" end) as $pre
+          | (if ($end < $tlen) or $wraptruncated then "…" else "" end) as $post
+          | "\($pre)\($hwindow)\($post)";
+        # select: falls der Vorfilter-Treffer nur im rohen troff-Text
+        # existierte (Caveat oben an mangrep()), bricht hier still ab statt
+        # einen leeren/falschen Block auszugeben.
+        select($text | test($p; "i")) |
+        "\($c_loc)\($name)(\($section))\($c_off) \($c_dim)(\($path))\($c_off)" as $header
+        | ("═" * ([$cols, 60] | min)) as $rule
+        | (if $all == "1" then
+             highlight($text)
+           elif $mode == "page" then
+             # Zwei-Argument-Modus: zeilenbasiert wie `grep -A N`, NICHT der
+             # reflowte/zentrierte Zeichen-Ausschnitt aus window() unten --
+             # zeigt die Trefferzeile plus die nächsten ($lines - 1)
+             # Original-Zeilen unverändert (Einrückung/Zeilenumbrüche der
+             # gerenderten Manpage bleiben erhalten). Genau der Punkt: man
+             # sieht direkt, ob auf eine "-X"-Zeile im selben Absatz noch
+             # die zugehörige Erklärung folgt, statt eines glattgezogenen
+             # Fließtexts. `--lines N` zählt hier wie `grep -A (N-1)`: die
+             # Trefferzeile selbst plus N-1 Folgezeilen (Default 6 = wie
+             # `grep -A 5`).
+             #
+             # KEIN "\n  "-Einzug pro Zeile (anders als bei window() unten):
+             # `man`/groff rendert schon bis knapp an die reale
+             # Terminalbreite heran (empirisch bestätigt, 17.09.: Zeilen bis
+             # 79 von 80 Spalten). Zwei zusätzliche Zeichen pro Zeile reichen
+             # dann, um in einem breiten Terminal die Zeile über die reale
+             # Breite zu schieben -- der Terminal bricht sie selbst mitten
+             # im Wort um (sichtbar als einzelne Buchstaben ganz links).
+             # Ohne Einzug bleibt jede Zeile exakt so breit wie von man
+             # gerendert, kein Überlauf möglich.
+             #
+             # Überlappende/direkt angrenzende Kontextfenster werden zu
+             # EINEM Block verschmolzen (wie bei echtem `grep -A N`) --
+             # sonst taucht z.B. bei zwei nah beieinanderliegenden Treffern
+             # derselbe Absatz zweimal hintereinander auf, nur getrennt
+             # durch den "--"-Trenner (wie bei `grep -A N`, in Blau statt
+             # Standard). Der Trenner erscheint dadurch auch nur noch dort,
+             # wo wirklich eine Lücke im Text liegt, nicht bei jedem
+             # einzelnen Treffer.
+             ($text | split("\n")) as $alllines
+             | ($alllines | length) as $n
+             | [range(0; $n) | select($alllines[.] | test($p; "i"))] as $matchidx
+             | ($matchidx
+                | map({start: ., end: ((. + $lines) as $e | if $e < $n then $e else $n end)})
+               ) as $rawranges
+             | (reduce $rawranges[] as $r
+                  ([];
+                    if (length > 0) and ($r.start <= .[-1].end) then
+                      (.[:-1] + [{start: .[-1].start, end: ([$r.end, .[-1].end] | max)}])
+                    else
+                      . + [$r]
+                    end
+                  )
+               ) as $merged
+             | ($merged
+                | map($alllines[.start:.end] | map(highlight(.)) | join("\n"))
+                | join("\n\($c_sep)--\($c_off)\n"))
+           else
+             window($text | match($p; "i"))
+           end) as $body
+        # Seiten-Modus ohne führenden 2-Zeichen-Einzug vor $body (siehe
+        # oben) -- sonst würde ausgerechnet die allererste, oft schon fast
+        # volle Zeile (die Trefferzeile selbst) genau um diese 2 Zeichen
+        # überlaufen.
+        | (if $mode == "page" then "\($header)\n\($c_dim)\($rule)\($c_off)\n\($body)"
+           else "\($header)\n\($c_dim)\($rule)\($c_off)\n  \($body)"
+           end)
+    ')
+    rm -f "$renderedfile"
+    if [ -n "$block" ]; then
+        printf '%s\n\n' "$block"
+        return 0
+    fi
+    return 1
+}
+
+mangrep() {
+    local all=0
+    local lines_opt=6
+    local refresh=0
+    local args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --all)
+                all=1
+                shift
+                ;;
+            --lines)
+                lines_opt="$2"
+                shift 2
+                ;;
+            --refresh)
+                refresh=1
+                shift
+                ;;
+            --)
+                # Ende der mangrep-eigenen Flags (GNU-Konvention). Ohne
+                # diesen Fall landete ein einzelnes "--" wie jedes andere
+                # unbekannte Token im *)-Zweig in $args -- bei z.B.
+                # `mangrep -- --gen-random` wurde dann args[0]="--" (statt
+                # "--gen-random") als Suchmuster genommen, was praktisch
+                # jede Manpage mit Optionslisten trifft. Alles nach "--"
+                # zählt jetzt unverändert als Positionsargument, auch wenn
+                # es wie eine mangrep-Flag aussieht.
+                shift
+                while [ $# -gt 0 ]; do
+                    args+=("$1")
+                    shift
+                done
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    # Ein Positionsargument: Volltextsuche über alle Manpages (bisheriges
+    # Verhalten, mode="search"). Zwei: `mangrep <kommando> <muster>` --
+    # NUR diese eine Seite durchsuchen, wie `man <kommando> | grep -e
+    # <muster>`, aber ohne Pipe-Tipparbeit und mit demselben Highlighting.
+    local cmd="" mode="search"
+    case "${#args[@]}" in
+        1) : ;;
+        2) cmd="${args[0]}"; args=("${args[1]}"); mode="page" ;;
+        *)
+            echo "Verwendung: mangrep [--all] [--lines N] [--refresh] <Suchbegriff>" >&2
+            echo "        oder: mangrep [--all] [--lines N] <Kommando> <Suchbegriff>  (nur diese eine Seite)" >&2
+            return 1
+            ;;
+    esac
+    case "$lines_opt" in
+        ''|*[!0-9]*|0)
+            echo "Verwendung: mangrep [--all] [--lines N] [--refresh] <Suchbegriff>  (N muss eine positive Zahl sein)" >&2
+            return 1
+            ;;
+    esac
+    local pattern="${args[0]}"
+    local c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_sep=$'\033[34m' c_off=$'\033[0m'
+
+    local cols
+    cols=$(tput cols 2>/dev/null </dev/tty)
+    [ -n "$cols" ] || cols=80
+    local avail=$((cols - 2))
+    [ "$avail" -gt 10 ] || avail=10
+
+    # Muster-Gültigkeit VORAB an einem leeren Dummy-Input prüfen, statt sich
+    # erst auf den Vorfilter unten zu verlassen -- so bricht ein kaputtes
+    # PCRE-Muster sofort ab, bevor überhaupt Cache/Seite angefasst wird.
+    # rc 1 = Muster gültig, im leeren Input erwartungsgemäß kein Treffer;
+    # rc >1 = ungültiges PCRE-Muster.
+    printf '' | grep -P -- "$pattern" >/dev/null 2>&1
+    if [ "$?" -gt 1 ]; then
+        echo "mangrep: ungültiges Suchmuster (PCRE): $pattern" >&2
+        return 1
+    fi
+
+    # Zwei-Argument-Modus: `man -w` löst GENAU die Seite auf, die auch
+    # `man <kommando>` öffnen würde (inkl. Locale-/Abschnitts-Priorität) --
+    # kein Korpus-weiter Cache/Vorfilter nötig, nur diese eine Datei
+    # rendern und durchsuchen (deshalb auch kein manpath/manroots-Aufbau
+    # unten, der ist nur für den Suchmodus relevant).
+    if [ "$mode" = page ]; then
+        local pagepath
+        pagepath=$(man -w "$cmd" 2>/dev/null | head -1)
+        if [ -z "$pagepath" ]; then
+            echo "mangrep: keine Handbuchseite gefunden für: $cmd" >&2
+            return 1
+        fi
+        _mangrep_show_page "$pagepath"
+        return
+    fi
+
+    # Alle manpath-Wurzeln einsammeln (nicht nur /usr/share/man -- auf
+    # diesem System z.B. auch linuxbrew). Jede Wurzel enthält direkt
+    # man1/man2/... sowie Übersetzungs-Unterordner wie de/man1/...; -type f
+    # rekursiv erfasst beide Ebenen, ohne dass die Verzeichnisstruktur
+    # bekannt sein müsste.
+    local manroots=()
+    while IFS= read -r d; do
+        [ -d "$d" ] && manroots+=("$d")
+    done < <(manpath 2>/dev/null | tr ':' '\n')
+    if [ "${#manroots[@]}" -eq 0 ]; then
+        echo "mangrep: keine Manpage-Verzeichnisse gefunden (manpath leer)" >&2
+        return 1
+    fi
+
+    # Klartext-Cache: Spiegel aller Manpage-Quellen (nur entpackt, nicht
+    # gerendert) unter ~/.cache/mangrep/<Originalpfad ohne führenden
+    # Slash>.txt. Neu gebaut bei --refresh, fehlendem Cache, oder wenn
+    # irgendein Man-Verzeichnis (Tiefe <=2, deckt sowohl .../man1/ direkt
+    # als auch .../de/man1/ ab) jünger ist als der letzte Aufbau.
+    #
+    # troff-Quelle escaped literale Bindestriche in Optionsnamen fast immer
+    # als "\-" (verhindert Trennung, korrekter Minus-Glyph beim Rendern) --
+    # z.B. steht in gpg.1 wörtlich ".B \-\-gen\-random", nicht "--gen-random".
+    # Ohne Normalisierung findet der Vorfilter unten also z.B. "--gen-random"
+    # NIE, obwohl `man gpg | grep` es zeigt (man/groff löst die Escapes beim
+    # Rendern auf). Deshalb "\-" -> "-" direkt beim Cache-Aufbau glätten --
+    # billiger sed-Durchlauf, der eigentliche Render-Schritt für Kandidaten
+    # bleibt der echte `man`-Renderer und ist davon unberührt.
+    local cachedir="${XDG_CACHE_HOME:-$HOME/.cache}/mangrep"
+    local marker="$cachedir/.built"
+    local need_build=0
+    if [ "$refresh" -eq 1 ] || [ ! -f "$marker" ]; then
+        need_build=1
+    elif find "${manroots[@]}" -maxdepth 2 -type d -newer "$marker" -print -quit 2>/dev/null | grep -q .; then
+        need_build=1
+    fi
+
+    local filelist
+    filelist=$(mktemp)
+    if [ "$need_build" -eq 1 ] && command -v rg >/dev/null 2>&1; then
+        # Cache fehlt/ist veraltet, `rg` ist da: statt die aktuelle Suche
+        # ~15-20s auf den vollen Neubau warten zu lassen, sofort live mit
+        # `rg -z` direkt auf den .gz-Dateien suchen -- kein Cache nötig,
+        # ~4s über den ganzen Korpus (17.09. per `time` gemessen: klar
+        # langsamer als der warme Cache, aber für einen einzelnen Aufruf
+        # tolerabel). Der Cache-Aufbau läuft parallel im Hintergrund weiter
+        # (disown, falls die Shell vor Fertigstellung beendet wird), damit
+        # der NÄCHSTE Aufruf wieder den schnellen Pfad nimmt.
+        #
+        # Lockverzeichnis NEBEN (nicht IN) $cachedir, weil der Hintergrund-
+        # Build $cachedir selbst per rm -rf wegwirft, bevor er ihn neu
+        # befüllt -- ein Lock innerhalb davon würde sich selbst mitlöschen.
+        # `mkdir` ist atomar (schlägt fehl, wenn das Verzeichnis schon
+        # existiert), das reicht als einfache Sperre gegen doppelte
+        # Hintergrund-Builds, falls mangrep kurz hintereinander mehrfach
+        # mit kaltem Cache läuft -- ohne die Sperre würde einfach nochmal
+        # live über rg -z gesucht, nie falsch, nur ohne Cache-Vorteil.
+        # Bricht der Hintergrund-Build unsauber ab, bleibt das Lock stehen
+        # und spätere Aufrufe bauen den Cache nicht mehr automatisch neu
+        # (rg -z läuft aber weiter korrekt) -- dann von Hand `rmdir` auf
+        # das Lock oder `rm -rf` auf $cachedir.
+        local lockdir="${cachedir}.building"
+        if mkdir "$lockdir" 2>/dev/null; then
+            _hinweis "mangrep: Cache fehlt/ist veraltet -- baue im Hintergrund neu, diese Suche läuft direkt über rg -z (~4s)…"
+            (
+                rm -rf "$cachedir"
+                mkdir -p "$cachedir"
+                find "${manroots[@]}" -type f -name '*.gz' -print0 2>/dev/null \
+                    | CACHEDIR="$cachedir" xargs -0 -P "$(nproc)" -I{} sh -c '
+                        f="{}"
+                        out="$CACHEDIR${f%.gz}.txt"
+                        mkdir -p "$(dirname "$out")"
+                        zcat "$f" 2>/dev/null | sed "s/\\\\-/-/g" > "$out"
+                      '
+                touch "$marker"
+                rmdir "$lockdir" 2>/dev/null
+            ) >/dev/null 2>&1 &
+            disown
+        fi
+        rg -z -l -i -P -0 -- "$pattern" "${manroots[@]}" > "$filelist" 2>/dev/null
+    else
+        if [ "$need_build" -eq 1 ]; then
+            _hinweis "mangrep: baue Textcache auf (einmalig bzw. nach Änderungen, ~15s)…"
+            rm -rf "$cachedir"
+            mkdir -p "$cachedir"
+            find "${manroots[@]}" -type f -name '*.gz' -print0 2>/dev/null \
+                | CACHEDIR="$cachedir" xargs -0 -P "$(nproc)" -I{} sh -c '
+                    f="{}"
+                    out="$CACHEDIR${f%.gz}.txt"
+                    mkdir -p "$(dirname "$out")"
+                    zcat "$f" 2>/dev/null | sed "s/\\\\-/-/g" > "$out"
+                  '
+            touch "$marker"
+        fi
+
+        # Vorfilter: EIN einzelner Prozess über den ganzen (jetzt frischen)
+        # Cache (kein find/xargs mehr nötig, kein Datei-Fork-Overhead wie
+        # beim ursprünglichen zgrep-Ansatz). Bevorzugt `rg` (ripgrep) --
+        # misst schneller als `grep -r` (0,2s vs. 0,5s über den warmen
+        # Cache, 17.09. per `time` verglichen), fällt aber auf `grep`
+        # zurück, falls `rg` auf der Maschine (noch) nicht installiert ist.
+        # `-0`/`-Z` = NUL statt Newline nach jedem Dateinamen, `--` schützt
+        # "$pattern" davor, als Flag statt Suchmuster interpretiert zu
+        # werden (Muster-Gültigkeit ist oben schon geprüft, daher hier
+        # keine Sonderbehandlung des Exit-Codes nötig).
+        local rawlist
+        rawlist=$(mktemp)
+        if command -v rg >/dev/null 2>&1; then
+            rg -l -i -P -0 -- "$pattern" "$cachedir" > "$rawlist" 2>/dev/null
+        else
+            grep -rlZiP -- "$pattern" "$cachedir" > "$rawlist" 2>/dev/null
+        fi
+        # Cache-Pfade (Klartext) zurück auf die Original-.gz-Datei mappen
+        # (fürs Rendern in _mangrep_show_page gebraucht), damit der Loop
+        # unten unabhängig davon ist, ob die Pfade aus dem Cache oder (wie
+        # im rg-z-Zweig oben) schon direkt aus dem Korpus kommen.
+        while IFS= read -r -d '' cf; do
+            local origf="${cf#$cachedir}"
+            origf="${origf%.txt}.gz"
+            printf '%s\0' "$origf"
+        done < "$rawlist" > "$filelist"
+        rm -f "$rawlist"
+    fi
+
+    if [ ! -s "$filelist" ]; then
+        rm -f "$filelist"
+        return 0
+    fi
+
+    local any=0
+    while IFS= read -r -d '' f; do
+        if _mangrep_show_page "$f"; then
+            any=1
+        fi
+    done < "$filelist"
+
+    rm -f "$filelist"
+    [ "$any" -eq 1 ]
 }
