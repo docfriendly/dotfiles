@@ -758,8 +758,17 @@ claudegrep() {
     for o in "${ors[@]}"; do posre+="|$o"; done
     local filelist
     filelist=$(mktemp)
-    grep -rlZiP --include='*.jsonl' -- "$posre" "${dirs[@]}" > "$filelist" 2>/dev/null
+    # timeout 120: PCRE-Muster wie (?=.*A)(?=.*B) laufen auf den sehr langen
+    # JSONL-Zeilen quadratisch (Backtracking) und hingen schon über eine
+    # Stunde. Exit 124 = Zeitlimit -> unten abbrechen, NICHT in den
+    # jq-Fallback gehen (der würde dasselbe Muster nochmal verarbeiten).
+    timeout 120 grep -rlZiP --include='*.jsonl' -- "$posre" "${dirs[@]}" > "$filelist" 2>/dev/null
     local grep_rc=$?
+    if [ "$grep_rc" -eq 124 ]; then
+        rm -f "$filelist"
+        echo "claudegrep: Zeitlimit (120 s) im Vorfilter -- Muster vermutlich zu teuer (z.B. Lookahead (?=.*...) auf langen Zeilen). Statt dessen --and/--or verwenden." >&2
+        return 124
+    fi
     if [ "$grep_rc" -eq 1 ]; then
         # Exit 1 = Muster syntaktisch gültig, aber in keiner Datei
         # enthalten -- jq würde ebenfalls nichts finden, kann also
@@ -782,8 +791,14 @@ claudegrep() {
     for a in "${ands[@]}"; do
         [ -s "$filelist" ] || break
         filtered=$(mktemp)
-        xargs -0 grep -lZiP -- "$a" < "$filelist" > "$filtered" 2>/dev/null
-        [ $? -le 1 ] && mv "$filtered" "$filelist" || rm -f "$filtered"
+        timeout 120 xargs -0 grep -lZiP -- "$a" < "$filelist" > "$filtered" 2>/dev/null
+        local and_rc=$?
+        if [ "$and_rc" -ge 124 ]; then
+            rm -f "$filtered" "$filelist"
+            echo "claudegrep: Zeitlimit (120 s) beim --and-Filter '$a' -- Muster zu teuer." >&2
+            return 124
+        fi
+        [ "$and_rc" -le 1 ] && mv "$filtered" "$filelist" || rm -f "$filtered"
     done
     if [ ! -s "$filelist" ]; then
         rm -f "$filelist"
@@ -849,7 +864,7 @@ claudegrep() {
     # beginnt -- Treffer derselben Session (= eine JSONL-Datei) liegen
     # dadurch im Eingabestrom immer schon zusammen, ohne dass vorher
     # sortiert werden müsste.
-    xargs -0 jq -n -r \
+    timeout 120 xargs -0 jq -n -r \
         --arg p "$pattern" \
         --arg all "$all" \
         --argjson cols "$cols" \
@@ -1074,7 +1089,12 @@ claudegrep() {
           )
         end
     ' < "$filelist"
+    local jq_rc=$?
     rm -f "$titlemap" "$filelist"
+    if [ "$jq_rc" -eq 124 ]; then
+        echo "claudegrep: Zeitlimit (120 s) in jq -- Suchmuster zu teuer, Ergebnis unvollständig." >&2
+        return 124
+    fi
 }
 
 # claudegrep show <Session-ID-Präfix | Suchbegriff> (Hilfsfunktion von
