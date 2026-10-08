@@ -248,6 +248,11 @@
       </property>
     </property>
     <property name="plugin-21" type="string" value="xfce4-timer-plugin"/>
+    <property name="clipman" type="empty">
+      <property name="settings" type="empty">
+        <property name="persistent-primary-clipboard" type="bool" value="false"/>
+      </property>
+    </property>
   </property>
   <property name="clipman" type="empty">
     <property name="tweaks" type="empty">
