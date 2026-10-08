@@ -944,8 +944,8 @@ claudegrep() {
           | (.[] | ($tmap[0][.sid] // null) as $title
              | (.last | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime | strftime("%d.%m.%y")) as $d
              | "\($c_ts)\(.n | tostring | (" " * (5 - length)) + .)\($c_off) \($c_dim)\($d)\($c_off) "
-               + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\(.cwd) · \(.sid[0:8]))\($c_off)"
-                  else "\($c_loc)\(.cwd)\($c_off) \($c_dim)(\(.sid[0:8]))\($c_off)" end)),
+               + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\(.cwd) · \(.sid[0:8]) · \(.sid))\($c_off)"
+                  else "\($c_loc)\(.cwd)\($c_off) \($c_dim)(\(.sid[0:8]) · \(.sid))\($c_off)" end)),
             "\($c_dim)── \(map(.n) | add // 0) Treffer in \(length) Sessions ──\($c_off)"
         else
         foreach (inputs | hit) as $r
@@ -990,8 +990,8 @@ claudegrep() {
             (if .changed then
                (if .first then "" else "\n" end) as $lead
                | ($tmap[0][$r.sid] // null) as $title
-               | $lead + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\($r.cwd) · \($r.sid[0:8]))\($c_off)"
-                          else "\($c_loc)\($r.cwd)\($c_off) \($c_dim)(\($r.sid[0:8]))\($c_off)" end)
+               | $lead + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\($r.cwd) · \($r.sid[0:8]) · \($r.sid))\($c_off)"
+                          else "\($c_loc)\($r.cwd)\($c_off) \($c_dim)(\($r.sid[0:8]) · \($r.sid))\($c_off)" end)
                + "\n" + $c_dim + ("═" * ([$cols, 60] | min)) + $c_off + "\n"
              else "" end) as $header
             # Datums-Zwischenzeile: nur ausgeben, wenn sich das Datum
