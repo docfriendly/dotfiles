@@ -35,13 +35,34 @@ case "$1" in ssh|mosh|all) KIND=$1; shift ;; esac
 CACHE="${XDG_RUNTIME_DIR:-/tmp}/ssh-in-status.$(id -u).$KIND"
 
 name_of() {
-    # Kommentarzeile "# gegenstelle" gewinnt vor Host/HostName (Kurzname fuer den Prompt)
-    awk -v ip="$1" '
+    # Reihenfolge: Kommentarzeile "# gegenstelle" > Host/HostName mit dieser IP > Host, dessen
+    # HostName ein DNS-/mDNS-Name ist und auf diese IP aufloest (z. B. harrys-x230.local, wie
+    # es ein "Match originalhost x230"-Fallback in der Config setzt). Ein Match originalhost
+    # <alias> zaehlt wie "Host <alias>"; jedes andere Match entzieht den Folgezeilen den Host.
+    local kind a b hit=
+    while read -r kind a b; do
+        case $kind in
+            G) echo "$a"; return ;;
+            H) [ -n "$hit" ] || hit=$a ;;
+        esac
+    done < <(awk -v ip="$1" '
         /^[[:space:]]*Host[[:space:]]/ { host = $2; next }
-        /^[[:space:]]*HostName[[:space:]]/ { if ($2 == ip && host !~ /[*?]/ && h == "") h = host }
-        /^[[:space:]]*#[[:space:]]*gegenstelle[[:space:]]/ { if ($3 == ip && g == "") g = $4 }
-        END { if (g != "") print g; else if (h != "") print h }
-    ' "$CFG" 2>/dev/null
+        /^[[:space:]]*Match[[:space:]]+originalhost[[:space:]]/ { host = $3; next }
+        /^[[:space:]]*Match[[:space:]]/ { host = "*"; next }
+        /^[[:space:]]*HostName[[:space:]]/ { if ($2 == ip && host !~ /[*?]/ && host != "") print "H", host }
+        /^[[:space:]]*#[[:space:]]*gegenstelle[[:space:]]/ { if ($3 == ip) print "G", $4 }
+    ' "$CFG" 2>/dev/null | sort -s -k1,1)
+    [ -n "$hit" ] && { echo "$hit"; return; }
+    # Fallback: DNS-Namen aufloesen (nur fuer sonst unbekannte IPs; 1 s Grenze gegen haengendes mDNS)
+    while read -r kind a b; do
+        [ "$kind" = N ] || continue
+        timeout 1 getent ahosts "$b" 2>/dev/null | awk -v ip="$1" '$1 == ip { f = 1 } END { exit !f }' && { echo "$a"; return; }
+    done < <(awk -v ip="$1" '
+        /^[[:space:]]*Host[[:space:]]/ { host = $2; next }
+        /^[[:space:]]*Match[[:space:]]+originalhost[[:space:]]/ { host = $3; next }
+        /^[[:space:]]*Match[[:space:]]/ { host = "*"; next }
+        /^[[:space:]]*HostName[[:space:]]/ && host !~ /[*?]/ && host != "" && $2 !~ /^[0-9.]+$/ && $2 !~ /:/ { print "N", host, $2 }
+    ' "$CFG" 2>/dev/null)
 }
 
 # alter_kurz <s>: 5m, 3h, 2d
