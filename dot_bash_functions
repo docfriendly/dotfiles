@@ -874,8 +874,14 @@ claudegrep() {
         --slurpfile tmap "$titlemap" \
         --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
         --arg c_hit "$c_hit" --arg c_off "$c_off" '
+        # sc: Smartcase pro Regex (wie fd/rg): enthält er (nach Entfernen von
+        # Escapes wie \\D, \\S) einen Großbuchstaben, gilt er exakt, sonst
+        # ohne Groß-/Kleinschreibung. Umsetzung über Inline-Gruppen (?i:...)
+        # statt des "i"-Flags, damit jeder Regex (Haupt-, --or, --and, --not)
+        # einzeln entscheidet. Der grep-Vorfilter bleibt -i (Obermenge).
+        def sc: if (gsub("\\\\."; "") | test("[A-Z]")) then "(?:" + . + ")" else "(?i:" + . + ")" end;
         # highlight($s): umschließt jeden Treffer von $p in $s mit Farbcode
-        # (case-insensitive). gsub("(?<m>"+$p+")"; ...; "i"): globales
+        # (Smartcase, s.o.). gsub("(?<m>"+$p+")"; ...): globales
         # Suchen&Ersetzen mit benannter Capture-Gruppe "m"; im Replacement
         # über \(.m) wieder eingesetzt. Eigene def, weil dieselbe Ersetzung
         # unten an zwei Stellen auf unterschiedlichem Text läuft (kompletter
@@ -884,10 +890,10 @@ claudegrep() {
         # $hp: alle positiven Begriffe (Hauptbegriff, --or, --and) als eine
         # Alternation -- für Hervorhebung und Fundstelle des Ausschnitts.
         # --not-Begriffe kommen nie vor, die sollen nicht markiert werden.
-        ([$p] + $ors + $ands | map("(?:" + . + ")") | join("|")) as $hp
+        ([$p] + $ors + $ands | map(sc) | join("|")) as $hp
         # $any: Hauptbegriff oder --or (mindestens einer muss passen).
-        | ([$p] + $ors | map("(?:" + . + ")") | join("|")) as $any
-        | def highlight($s): $s | gsub("(?<m>" + $hp + ")"; $c_hit + "\(.m)" + $c_off; "i");
+        | ([$p] + $ors | map(sc) | join("|")) as $any
+        | def highlight($s): $s | gsub("(?<m>" + $hp + ")"; $c_hit + "\(.m)" + $c_off);
 
         # wrap($width): zerlegt einen String in ein Array von Zeilen, die
         # (an Leerzeichen entlang, klassischer "greedy" Umbruch) jeweils
@@ -919,11 +925,11 @@ claudegrep() {
              | if type == "string" then .
                else ([.[] | select(.type == "text") | .text] | join(" "))
                end) as $text
-          # test($p; "i"): Regex-Test (nur ja/nein), "i" = case-insensitive.
+          # test($p): Regex-Test (nur ja/nein), Smartcase über sc.
           | select($text != ""
-                   and ($text | test($any; "i"))
-                   and ($ands | all(. as $a | $text | test($a; "i")))
-                   and ($nots | all(. as $n | $text | test($n; "i") | not)))
+                   and ($text | test($any))
+                   and ($ands | all(. as $a | $text | test($a | sc)))
+                   and ($nots | all(. as $n | $text | test($n | sc) | not)))
           | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text};
 
         # --count: statt der Einzeltreffer nur eine Übersicht pro Session
@@ -1025,7 +1031,7 @@ claudegrep() {
             | (if $all == "1" then
                  highlight($r.text)
                else
-                 # match($p; "i"): wie test, liefert zusätzlich die
+                 # match($p): wie test, liefert zusätzlich die
                  # Fundstelle (.offset/.length) des ersten Treffers -- daraus
                  # wird unten das Fenster drumrum berechnet (mit
                  # Rand-Clamping auf 0 bzw. Textende) und per Slicing
@@ -1038,7 +1044,7 @@ claudegrep() {
                  # diesen letzten Abzug wäre das Fenster immer um die
                  # Trefferlänge zu breit.
                  ($avail * $lines) as $budget
-                 | ($r.text | match($hp; "i")) as $mt
+                 | ($r.text | match($hp)) as $mt
                  | ($r.text | length) as $tlen
                  | ((($budget - 2 - $mt.length) / 2 | floor) as $h
                     | if $h > 0 then $h else 0 end) as $half
