@@ -1095,6 +1095,10 @@ claudegrep() {
         echo "claudegrep: Zeitlimit (120 s) in jq -- Suchmuster zu teuer, Ergebnis unvollständig." >&2
         return 124
     fi
+    # Fußzeile: Anführungszeichen verarbeitet Bash, bevor claudegrep das
+    # Argument sieht. Nur bei interaktivem stderr, damit Skripte/Pipes
+    # nicht damit zugemüllt werden.
+    [ -t 2 ] && _hinweis "Achtung Bash-Quoting: '…' lässt den Regex unverändert, in \"…\" ersetzt Bash \$VAR und !"
 }
 
 # claudegrep show <Session-ID-Präfix | Suchbegriff> (Hilfsfunktion von
