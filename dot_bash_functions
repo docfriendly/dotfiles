@@ -594,6 +594,13 @@ fd() {
 }
 
 
+# Filter (alle wiederholbar, Regex wie der Suchbegriff, gelten pro Nachricht):
+#   --or X   zusätzlicher Alternativbegriff (Suchbegriff ODER X)
+#   --and X  Nachricht muss zusätzlich auch X enthalten
+#   --not X  Nachrichten mit X werden ausgeschlossen
+#   --count  nur Übersicht pro Session (Trefferzahl, letztes Datum, Titel),
+#            nach Trefferzahl sortiert, plus Gesamtsumme
+# Beispiel: claudegrep --count strictmodes --and authorized_keys --not forensic
 # claudegrep [--all] [--lines N] <suchbegriff> [Verzeichnis]: durchsucht
 # Claude-Code-Session-Logs (Standard: ~/.claude/projects/**/*.jsonl) nach
 # <suchbegriff> im Text von User-/Assistant-Nachrichten (case-insensitive).
@@ -634,8 +641,9 @@ claudegrep() {
     # NÄCHSTEN Argument liest (shift 2) und eine einfache for-a-in-Schleife
     # dafür keinen Zugriff auf "das nächste Element" bietet.
     local all=0
+    local count=0
     local lines_opt=1
-    local args=()
+    local args=() ors=() ands=() nots=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --all)
@@ -646,6 +654,25 @@ claudegrep() {
                 lines_opt="$2"
                 shift 2
                 ;;
+            --count)
+                count=1
+                shift
+                ;;
+            # --or/--and/--not: je ein weiterer Regex, beliebig oft
+            # wiederholbar. Fehlender Wert (Option am Ende der Argumentliste)
+            # sofort abfangen, sonst würde shift 2 ins Leere laufen.
+            --or|--and|--not)
+                if [ $# -lt 2 ]; then
+                    echo "claudegrep: $1 braucht einen Suchbegriff" >&2
+                    return 1
+                fi
+                case "$1" in
+                    --or) ors+=("$2") ;;
+                    --and) ands+=("$2") ;;
+                    --not) nots+=("$2") ;;
+                esac
+                shift 2
+                ;;
             *)
                 args+=("$1")
                 shift
@@ -653,7 +680,7 @@ claudegrep() {
         esac
     done
     if [ "${#args[@]}" -eq 0 ]; then
-        echo "Verwendung: claudegrep [--all] [--lines N] <Suchbegriff> [Verzeichnis]" >&2
+        echo "Verwendung: claudegrep [--all] [--lines N] [--count] [--or X] [--and X] [--not X] <Suchbegriff> [Verzeichnis]" >&2
         echo "            claudegrep show <Session-ID-Präfix | Suchbegriff>" >&2
         return 1
     fi
@@ -671,7 +698,7 @@ claudegrep() {
     # einer kryptischen Fehlermeldung auffallen.
     case "$lines_opt" in
         ''|*[!0-9]*|0)
-            echo "Verwendung: claudegrep [--all] [--lines N] <Suchbegriff> [Verzeichnis]  (N muss eine positive Zahl sein)" >&2
+            echo "Verwendung: claudegrep [--all] [--lines N] [--count] [--or X] [--and X] [--not X] <Suchbegriff> [Verzeichnis]  (N muss eine positive Zahl sein)" >&2
             return 1
             ;;
     esac
@@ -722,9 +749,16 @@ claudegrep() {
     # "Argument list too long") an grep/jq weitergereicht werden kann --
     # dieselbe automatische Aufteilung, die vorher `find -exec {} +` schon
     # geleistet hat.
+    #
+    # Vorfilter-Muster = Hauptbegriff oder einer der --or-Begriffe (die
+    # --and-Begriffe werden unten als weitere Dateifilter nachgeschaltet,
+    # --not lässt sich auf Dateiebene nicht vorfiltern -- es gilt pro
+    # Nachricht und wird erst in jq geprüft).
+    local posre="$pattern" o
+    for o in "${ors[@]}"; do posre+="|$o"; done
     local filelist
     filelist=$(mktemp)
-    grep -rlZiP --include='*.jsonl' -- "$pattern" "${dirs[@]}" > "$filelist" 2>/dev/null
+    grep -rlZiP --include='*.jsonl' -- "$posre" "${dirs[@]}" > "$filelist" 2>/dev/null
     local grep_rc=$?
     if [ "$grep_rc" -eq 1 ]; then
         # Exit 1 = Muster syntaktisch gültig, aber in keiner Datei
@@ -741,10 +775,27 @@ claudegrep() {
         # aber korrekt).
         find "${dirs[@]}" -name '*.jsonl' -type f -print0 > "$filelist"
     fi
+    # --and: Datei muss jeden weiteren Begriff ebenfalls enthalten (billiger
+    # Dateifilter; ob beide in DERSELBEN Nachricht stehen, prüft jq). Bei
+    # grep-Fehler (rc>1, z.B. kein gültiges PCRE) Liste unverändert lassen.
+    local a filtered
+    for a in "${ands[@]}"; do
+        [ -s "$filelist" ] || break
+        filtered=$(mktemp)
+        xargs -0 grep -lZiP -- "$a" < "$filelist" > "$filtered" 2>/dev/null
+        [ $? -le 1 ] && mv "$filtered" "$filelist" || rm -f "$filtered"
+    done
     if [ ! -s "$filelist" ]; then
         rm -f "$filelist"
         return 0
     fi
+
+    # Regex-Listen als JSON-Arrays für jq (leeres Array, wenn nichts da ist --
+    # printf '%s\n' ohne Argumente würde sonst eine leere Zeile liefern).
+    local ors_json='[]' ands_json='[]' nots_json='[]'
+    [ "${#ors[@]}" -gt 0 ] && ors_json=$(printf '%s\n' "${ors[@]}" | jq -R . | jq -sc .)
+    [ "${#ands[@]}" -gt 0 ] && ands_json=$(printf '%s\n' "${ands[@]}" | jq -R . | jq -sc .)
+    [ "${#nots[@]}" -gt 0 ] && nots_json=$(printf '%s\n' "${nots[@]}" | jq -R . | jq -sc .)
 
     # Session-Titel vorab einsammeln (sessionId -> Titel): Claude Code
     # schreibt pro Session ai-title (automatisch generiert) und optional
@@ -803,6 +854,8 @@ claudegrep() {
         --arg all "$all" \
         --argjson cols "$cols" \
         --argjson lines "$lines_opt" \
+        --arg count "$count" \
+        --argjson ors "$ors_json" --argjson ands "$ands_json" --argjson nots "$nots_json" \
         --slurpfile tmap "$titlemap" \
         --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
         --arg c_hit "$c_hit" --arg c_off "$c_off" '
@@ -813,7 +866,13 @@ claudegrep() {
         # unten an zwei Stellen auf unterschiedlichem Text läuft (kompletter
         # Text bei --all, nur der Fenster-Ausschnitt sonst) -- so bleibt der
         # Suchen&Ersetzen-Ausdruck nur einmal geschrieben.
-        def highlight($s): $s | gsub("(?<m>" + $p + ")"; $c_hit + "\(.m)" + $c_off; "i");
+        # $hp: alle positiven Begriffe (Hauptbegriff, --or, --and) als eine
+        # Alternation -- für Hervorhebung und Fundstelle des Ausschnitts.
+        # --not-Begriffe kommen nie vor, die sollen nicht markiert werden.
+        ([$p] + $ors + $ands | map("(?:" + . + ")") | join("|")) as $hp
+        # $any: Hauptbegriff oder --or (mindestens einer muss passen).
+        | ([$p] + $ors | map("(?:" + . + ")") | join("|")) as $any
+        | def highlight($s): $s | gsub("(?<m>" + $hp + ")"; $c_hit + "\(.m)" + $c_off; "i");
 
         # wrap($width): zerlegt einen String in ein Array von Zeilen, die
         # (an Leerzeichen entlang, klassischer "greedy" Umbruch) jeweils
@@ -846,9 +905,28 @@ claudegrep() {
                else ([.[] | select(.type == "text") | .text] | join(" "))
                end) as $text
           # test($p; "i"): Regex-Test (nur ja/nein), "i" = case-insensitive.
-          | select($text != "" and ($text | test($p; "i")))
+          | select($text != ""
+                   and ($text | test($any; "i"))
+                   and ($ands | all(. as $a | $text | test($a; "i")))
+                   and ($nots | all(. as $n | $text | test($n; "i") | not)))
           | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text};
 
+        # --count: statt der Einzeltreffer nur eine Übersicht pro Session
+        # (Trefferzahl, letzter Treffer, Titel, Pfad), nach Trefferzahl
+        # absteigend sortiert, plus Gesamtsumme. group_by sortiert nach sid
+        # und liefert pro Gruppe ein Array -- hier ist Sortierung egal, weil
+        # unten ohnehin nach Anzahl sortiert wird.
+        if $count == "1" then
+          [inputs | hit] | group_by(.sid)
+          | map({sid: .[0].sid, cwd: .[0].cwd, n: length, last: (map(.ts) | max)})
+          | sort_by(-.n)
+          | (.[] | ($tmap[0][.sid] // null) as $title
+             | (.last | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | localtime | strftime("%d.%m.%y")) as $d
+             | "\($c_ts)\(.n | tostring | (" " * (5 - length)) + .)\($c_off) \($c_dim)\($d)\($c_off) "
+               + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\(.cwd) · \(.sid[0:8]))\($c_off)"
+                  else "\($c_loc)\(.cwd)\($c_off) \($c_dim)(\(.sid[0:8]))\($c_off)" end)),
+            "\($c_dim)── \(map(.n) | add // 0) Treffer in \(length) Sessions ──\($c_off)"
+        else
         foreach (inputs | hit) as $r
           ( {prev: null, prevdate: null};
             # "first" merkt sich (aus dem ALTEN .prev, vor dem Überschreiben
@@ -945,7 +1023,7 @@ claudegrep() {
                  # diesen letzten Abzug wäre das Fenster immer um die
                  # Trefferlänge zu breit.
                  ($avail * $lines) as $budget
-                 | ($r.text | match($p; "i")) as $mt
+                 | ($r.text | match($hp; "i")) as $mt
                  | ($r.text | length) as $tlen
                  | ((($budget - 2 - $mt.length) / 2 | floor) as $h
                     | if $h > 0 then $h else 0 end) as $half
@@ -994,6 +1072,7 @@ claudegrep() {
             # eine Leerzeile erzeugt.
             | "\($header)\($datehdr)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
           )
+        end
     ' < "$filelist"
     rm -f "$titlemap" "$filelist"
 }
