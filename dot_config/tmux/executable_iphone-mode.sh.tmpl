@@ -64,6 +64,9 @@ else
   # 2 Zellen) zusammen = 3 -- bei 2 lief Zeile 1 um 1 Zelle ueber und das
   # "┐" sass versetzt zum "┘" (Fund 06.10.2026, nc-fax: gezoomtes PiP-Fenster).
   # iPhone-Zweig bleibt bei 2 (zu schmal fuer mehr).
+  # 08.10.2026: Link-Glyph steht NICHT mehr hier, sondern direkt hinter der
+  # Nummer (s. _shared_marker/window-status-format) -- ▶ + 🔍 + Glyph = 4 sprengten
+  # die 3 (z.B. DEV:2 "masq": PiP-verknuepft, geteilt und gezoomt).
   _marker_w=3
   _flags_w=3
   _name_trunc=13
@@ -159,7 +162,13 @@ _num_area_w=$(( _tab_w - _marker_w - _flags_w - 2 ))
 _num_center_m=$(( (_num_area_w + 1) / 2 ))
 _pip_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
 _zoom_marker="#{?window_zoomed_flag,🔍,}"
-_shared_marker="#{?window_linked,#{?#{m:*_pip*,#{window_linked_sessions_list}},,🔗},}"
+# 🔗 ist ein Farb-Emoji und nimmt keine fg-Farbe an (auf Flieder/Petrol kaum zu
+# sehen, Wunsch 08.10.2026) -> Nerd-Font-Glyph U+F0C1 (nf-fa-link, 1 Zelle breit,
+# einfarbig), erbt die Textfarbe der Box (schwarz auf Claude-/PiP-Hintergrund).
+# Ein explizites #[fg=black] samt push-default/pop-default ist NICHT drin: die
+# Statuszeile wird in einem Zug gezeichnet, der gesetzte Default schlug auf alle
+# Tabs hinter dem ersten verlinkten Fenster durch (Fund 08.10.2026, AGENTS ab 5).
+_shared_marker="#{?window_linked,#{?#{m:*_pip*,#{window_linked_sessions_list}},,},}"
 # Das hartkodierte "Z" aus #{window_flags} (tmux haengt es selbst an, siehe
 # window.c, window_printable_flags(): flags[pos++]='Z' -- dafuer gibt es
 # KEINE Option) wird per s/Z// entfernt, sonst stuende es doppelt da (einmal
@@ -197,8 +206,8 @@ _flags_marker="#{s/Z//:window_flags}"
 # aufreissen.
 _claude_prefix="#({{ .chezmoi.homeDir }}/.config/tmux/claude-pane-status-color.sh #{window_id})"
 
-tmux set -g window-status-format "${_pip_prefix}${_claude_prefix}┌ #{p${_marker_w}:${_pip_marker}${_zoom_marker}${_shared_marker}}#{p${_num_area_w}:#{p-${_num_center_m}:#{window_index}}}#{p-${_flags_w}:${_flags_marker}} ┐#[default]"
-tmux set -g window-status-current-format "┌ #{p${_marker_w}:${_pip_marker}${_zoom_marker}${_shared_marker}}#{p${_num_area_w}:#{p-${_num_center_m}:#{window_index}}}#{p-${_flags_w}:${_flags_marker}} ┐"
+tmux set -g window-status-format "${_pip_prefix}${_claude_prefix}┌ #{p${_marker_w}:${_pip_marker}${_zoom_marker}}#{p${_num_area_w}:#{p-${_num_center_m}:#{window_index}}${_shared_marker}}#{p-${_flags_w}:${_flags_marker}} ┐#[default]"
+tmux set -g window-status-current-format "┌ #{p${_marker_w}:${_pip_marker}${_zoom_marker}}#{p${_num_area_w}:#{p-${_num_center_m}:#{window_index}}${_shared_marker}}#{p-${_flags_w}:${_flags_marker}} ┐"
 
 # Name-Ausdruck in Einzelschritten statt einer verschachtelten Zeile, damit
 # lesbar bleibt, was mit "claude-" passiert: Präfix weg -> auf _name_trunc
