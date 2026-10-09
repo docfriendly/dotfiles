@@ -1104,7 +1104,7 @@ claudegrep() {
     # Fußzeile: Anführungszeichen verarbeitet Bash, bevor claudegrep das
     # Argument sieht. Nur bei interaktivem stderr, damit Skripte/Pipes
     # nicht damit zugemüllt werden.
-    [ -t 2 ] && _hinweis "Achtung Bash-Quoting: '…' lässt den Regex unverändert, in \"…\" ersetzt Bash \$VAR und !"
+    [ -t 2 ] && _hinweis "Bash ersetzt in \"…\" \$VAR und ! → '…' nutzen"
 }
 
 # claudegrep show <Session-ID-Präfix | Suchbegriff> (Hilfsfunktion von
