@@ -951,7 +951,7 @@ claudegrep() {
           | (($pasted != "1")
              and (($clean | test($any) | not)
                   or ($ands | any(. as $a | $clean | test($a | sc) | not)))) as $hidden
-          | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text, hidden: $hidden};
+          | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: (if $hidden then $text else $t end), hidden: $hidden};
 
         # --count: statt der Einzeltreffer nur eine Übersicht pro Session
         # (Trefferzahl, letzter Treffer, Titel, Pfad), nach Trefferzahl
