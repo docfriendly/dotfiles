@@ -535,6 +535,38 @@ sudo chown -R harry:harry <betroffener-ordner>
 
 Danach `chezmoi apply` erneut ausführen.
 
+**Ein Skript bricht ab und der Rest läuft nicht** (chezmoi stoppt beim ersten
+Fehler)
+
+Deshalb die Reihenfolge: kurze, fehleranfällige Skripte (Downloads, apt,
+`sudo`) zuerst, lange Kompilierung zuletzt (70–75, siehe Bootstrap-Kette).
+Ein fehlgeschlagenes `run_once_` gilt nicht als erledigt, läuft beim
+nächsten `chezmoi apply` erneut – nach dem Fix reicht
+`chezmoi update --apply`. Gelernt beim ihht-Bootstrap (09.10.2026):
+
+- **Gepinnter Download liefert HTML statt Paket**: NoMachines alter Link
+  antwortete mit 302 auf die Startseite, `curl -f` merkte nichts, apt:
+  „Ungültige Archiv-Signatur“. Seitdem prüft der Preflight
+  (`run_once_before_02`) die URLs aus `.chezmoidata.yaml` (`downloads.*`)
+  und Skript 35 zusätzlich per `dpkg-deb --info`. Neue gepinnte Downloads
+  dort eintragen und im Preflight ergänzen.
+- **Template `map has no entry for key`**: `$machine.<schluessel>` bricht auf
+  Hosts ab, die den Schlüssel nicht haben. Optionale Schlüssel immer mit
+  `index $machine "schluessel"` abfragen (fehlend = false), z.B.
+  `sysvinit` (nur x220) in Skript 51.
+- **`find`/`grep` unter `pipefail`**: ein fehlendes Verzeichnis ergibt
+  Exit 1 und bricht das Skript ab, obwohl nichts zu tun ist (Skript 55 auf
+  Hosts ohne `~/.claude/projects`). Vorher mit `[ -d … ] || exit 0` prüfen.
+- **`python3 -m py_compile` im Paketpfad**: `__pycache__` unter
+  `/usr/lib/python3/dist-packages` gehört root, als User `Errno 13`
+  (ulauncher-Patch, Skript 53). Mit `sudo` aufrufen.
+- **`lazy-lock.json` lokal geändert**: nvim aktualisiert das Lockfile beim
+  Start. `chezmoi apply` fragt dann (`diff/overwrite/…`). `overwrite` nimmt
+  die Repo-Version, danach in nvim `:Lazy restore`.
+- **Mason bricht beim headless-Install ab** (`erb-lint`, `markdown-toc`,
+  `markdownlint-cli2`): nvim beendet sich, bevor Mason fertig ist. Beim
+  ersten interaktiven `nvim`-Start installiert Mason nach.
+
 ## Maschinenspezifische Werte
 
 `.chezmoi.toml.tmpl` fragt bei `chezmoi init` interaktiv nach Git-`name`
