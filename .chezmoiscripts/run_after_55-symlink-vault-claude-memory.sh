@@ -20,6 +20,10 @@ set -eufo pipefail
 #  idempotent.
 # ══════════════════════════════════════════════════════════════════
 
+# Frischer Host ohne Claude Code: find lieferte Exit 1 und pipefail brach den
+# ganzen apply ab (ihht, 09.10.2026) - nichts zu migrieren, also still enden.
+[ -d "$HOME/.claude/projects" ] || exit 0
+
 VAULT_MEMORY_ROOT="$HOME/Sync/vault/claude/memory"
 mkdir -p "$VAULT_MEMORY_ROOT"
 
