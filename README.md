@@ -42,6 +42,13 @@ Zwei Stolpersteine, beide auf ihht aufgefallen:
     libncurses-dev tk-dev uuid-dev libgdbm-dev xz-utils curl git
   ```
 
+- **`/tmp` kann ein kleines tmpfs sein:** Fehlgeschlagene `python-build`/
+  `ruby-build`-Läufe lassen ihr Build-Verzeichnis liegen. Auf einem Host mit
+  2 GB tmpfs war `/tmp` nach zwei Fehlversuchen voll, danach scheiterte sogar
+  der Download (`curl: (23) Failure writing output`). Das asdf-Skript baut
+  deshalb unter `~/.cache/asdf-build`. Reste auf alten Hosts:
+  `rm -rf /tmp/*-build.*` und `df -h /tmp` prüfen.
+
 Wer den Verlauf mitschneiden will (Fehlersuche, Dokumentation), startet den
 Einzeiler unter `script`; das protokolliert die komplette Terminalausgabe:
 

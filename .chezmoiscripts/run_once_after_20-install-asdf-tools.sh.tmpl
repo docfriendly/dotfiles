@@ -28,6 +28,18 @@ done
 # (liest ~/.tool-versions, das per chezmoi verwaltet wird)
 # ══════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════
+# BUILD-VERZEICHNIS AUF DIE PLATTE LEGEN
+# python-build/ruby-build entpacken und kompilieren in $TMPDIR. /tmp
+# ist auf vielen Hosts ein tmpfs (z. B. 2 GB auf ihht, im RAM). Ein
+# fehlgeschlagener Build lässt sein Verzeichnis liegen (zum Inspizieren),
+# zwei Fehlversuche füllten /tmp auf 100 %, danach scheiterte sogar der
+# Download ("curl: (23) Failure writing output").
+# ══════════════════════════════════════════════════════════════════
+
+export TMPDIR="$HOME/.cache/asdf-build"
+mkdir -p "$TMPDIR"
+
 if [ -f "$HOME/.tool-versions" ]; then
   echo "==> Installiere Tool-Versionen aus ~/.tool-versions..."
   asdf install
