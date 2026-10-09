@@ -1,0 +1,36 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# BUILD-ABHÄNGIGKEITEN (nur Linux mit apt - macOS bringt Xcode-CLT mit)
+# asdf kompiliert Python und Ruby aus dem Quelltext (python-build,
+# ruby-build). Fehlen die -dev-Pakete, baut Python still OHNE ssl & Co.,
+# und Ruby bricht ab (fiddle/libffi, psych/libyaml). Deshalb VOR dem
+# asdf-Schritt (run_once_after_20) installieren.
+# ══════════════════════════════════════════════════════════════════
+
+if ! command -v apt-get >/dev/null 2>&1; then
+  echo "==> Kein apt-get gefunden, überspringe Build-Abhängigkeiten."
+  exit 0
+fi
+
+PACKAGES=(
+  build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev
+  libsqlite3-dev libffi-dev libyaml-dev liblzma-dev libncurses-dev
+  tk-dev uuid-dev libgdbm-dev xz-utils curl git
+)
+
+MISSING=()
+for pkg in "${PACKAGES[@]}"; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
+done
+
+if [ "${#MISSING[@]}" -eq 0 ]; then
+  echo "==> Build-Abhängigkeiten bereits installiert, überspringe."
+else
+  echo "==> Installiere Build-Abhängigkeiten: ${MISSING[*]}"
+  sudo apt-get update
+  sudo apt-get install -y "${MISSING[@]}"
+fi
+{{ end -}}

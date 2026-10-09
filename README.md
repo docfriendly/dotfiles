@@ -32,6 +32,23 @@ Zwei Stolpersteine, beide auf ihht aufgefallen:
   `open /home/<alter-user>/.config/chezmoi: permission denied` ab oder
   schreibt ins falsche Home. Also direkt als der Ziel-User einloggen oder
   `su - harry` benutzen; vorher `echo $HOME` prüfen.
+- **Build-Pakete vorher installieren (Debian/MX):** asdf kompiliert Python
+  und Ruby aus dem Quelltext. Ohne die `-dev`-Pakete wird Python still ohne
+  `ssl` & Co. gebaut, Ruby bricht ab (`fiddle`/libffi, `psych`/libyaml):
+
+  ```bash
+  sudo apt install build-essential libssl-dev zlib1g-dev libbz2-dev \
+    libreadline-dev libsqlite3-dev libffi-dev libyaml-dev liblzma-dev \
+    libncurses-dev tk-dev uuid-dev libgdbm-dev xz-utils curl git
+  ```
+
+Wer den Verlauf mitschneiden will (Fehlersuche, Dokumentation), startet den
+Einzeiler unter `script`; das protokolliert die komplette Terminalausgabe:
+
+```bash
+cd ~ && script -q -c 'sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply docfriendly' \
+  ~/bootstrap-$(hostname)-$(date +%F).log
+```
 
 `docfriendly` ist ein öffentlicher **Lese-Mirror** auf GitHub (Push-Mirror,
 automatisch synchronisiert vom primären, privaten Forgejo-Repo unter
