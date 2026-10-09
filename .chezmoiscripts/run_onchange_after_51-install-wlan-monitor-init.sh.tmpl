@@ -6,7 +6,7 @@ set -eufo pipefail
 {{   fail (printf "run_onchange_after_51-install-wlan-monitor-init: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
 {{- end }}
 
-{{ if $machine.sysvinit -}}
+{{ if index $machine "sysvinit" -}}
 # ══════════════════════════════════════════════════════════════════
 # WLAN-MONITOR: LSB-INIT-SKRIPT NACH /etc/init.d INSTALLIEREN
 # (sysvinit-Autostart fuer check_connection.sh. Nur auf Maschinen mit
