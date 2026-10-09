@@ -19,8 +19,19 @@ Danach dieser eine Befehl: installiert chezmoi selbst (Standalone-Binary,
 **keine** Homebrew-Abhängigkeit), klont dieses Repo und wendet es sofort an:
 
 ```bash
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply docfriendly
+cd ~ && sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply docfriendly
 ```
+
+Zwei Stolpersteine, beide auf ihht aufgefallen:
+
+- **`cd ~` ist nötig:** Der Installer legt `./bin/chezmoi` im *aktuellen*
+  Verzeichnis an. In `/home` o. ä. scheitert er mit
+  `install: cannot change permissions of 'bin'`.
+- **Echte Login-Shell des Ziel-Users:** Nach `su harry` (ohne `-`) bleibt
+  `$HOME` beim alten User, chezmoi bricht dann mit
+  `open /home/<alter-user>/.config/chezmoi: permission denied` ab oder
+  schreibt ins falsche Home. Also direkt als der Ziel-User einloggen oder
+  `su - harry` benutzen; vorher `echo $HOME` prüfen.
 
 `docfriendly` ist ein öffentlicher **Lese-Mirror** auf GitHub (Push-Mirror,
 automatisch synchronisiert vom primären, privaten Forgejo-Repo unter
