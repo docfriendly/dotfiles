@@ -21,3 +21,10 @@ machines:
       # hier, sondern in ~/Sync/vault/tmux/t410s/resurrect-processes, siehe
       # dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'btop "syncthing --no-browser"'
+  ihht:
+    tmux:
+      statusBg: "colour141 #flieder"
+      # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
+      # hier, sondern in ~/Sync/vault/tmux/ihht/resurrect-processes, siehe
+      # dot_config/tmux/tmux.conf.tmpl.
+      resurrectProcesses: 'btop "syncthing --no-browser"'
