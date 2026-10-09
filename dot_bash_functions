@@ -725,8 +725,8 @@ claudegrep() {
     fi
     # $'\033[...' = Bash-ANSI-C-Quoting; \033 ist das ESC-Byte (oktal 33 =
     # dezimal 27), gefolgt vom SGR-Farbcode: 36 cyan, 33 gelb, 1;35 fett+
-    # magenta, 2 gedimmt, 1;31 fett+rot, 0 = zurücksetzen.
-    local c_ts=$'\033[36m' c_role=$'\033[33m' c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_off=$'\033[0m'
+    # magenta, 2 gedimmt, 1;31 fett+rot, 38;5;208 orange (256-Farben, Hinweis auf eingefügte Blöcke), 0 = zurücksetzen.
+    local c_ts=$'\033[36m' c_role=$'\033[33m' c_loc=$'\033[1;35m' c_dim=$'\033[2m' c_hit=$'\033[1;31m' c_note=$'\033[38;5;208m' c_off=$'\033[0m'
 
     # Terminalbreite ermitteln (für Ausschnittsbreite und Trennlinie unten).
     # </dev/tty statt Default-stdin: claudegrep wird oft in eine Pipe (z.B.
@@ -882,7 +882,7 @@ claudegrep() {
         --argjson ors "$ors_json" --argjson ands "$ands_json" --argjson nots "$nots_json" \
         --slurpfile tmap "$titlemap" \
         --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
-        --arg c_hit "$c_hit" --arg c_off "$c_off" '
+        --arg c_hit "$c_hit" --arg c_note "$c_note" --arg c_off "$c_off" '
         # sc: Smartcase pro Regex (wie fd/rg): enthält er (nach Entfernen von
         # Escapes wie \\D, \\S) einen Großbuchstaben, gilt er exakt, sonst
         # ohne Groß-/Kleinschreibung. Umsetzung über Inline-Gruppen (?i:...)
@@ -971,7 +971,7 @@ claudegrep() {
                   else "\($c_loc)\(.cwd)\($c_off) \($c_dim)(\(.sid[0:8]) · \(.sid))\($c_off)" end)),
             "\($c_dim)── \(map(.n) | add // 0) Treffer in \(length) Sessions ──\($c_off)",
             (if ($hid | length) > 0
-             then "\($c_dim)(+\($hid | length) Treffer nur in eingefügten Blöcken -- --pasted zählt sie mit)\($c_off)"
+             then "\($c_note)(+\($hid | length) Treffer nur in eingefügten Blöcken -- --pasted zählt sie mit)\($c_off)"
              else empty end)
         else
         foreach (inputs | hit) as $r
@@ -1153,7 +1153,7 @@ claudegrep() {
             # an -- ein zusätzliches "\n" in diesem String hätte pro Treffer
             # eine Leerzeile erzeugt.
             | (if $r.hidden
-               then "\($c_dim)⎘ nur in eingefügtem Block (--pasted zeigt den Ausschnitt)\($c_off)"
+               then "\($c_note)⎘ nur in eingefügtem Block (--pasted zeigt den Ausschnitt)\($c_off)"
                else $bodytext end) as $bodytext
             | "\($header)\($datehdr)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
           )
