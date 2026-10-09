@@ -1044,13 +1044,48 @@ claudegrep() {
                  # diesen letzten Abzug wäre das Fenster immer um die
                  # Trefferlänge zu breit.
                  ($avail * $lines) as $budget
-                 | ($r.text | match($hp)) as $mt
+                 # Fensterlage: NICHT einfach der erste Treffer irgendeines
+                 # Begriffs ($hp), sonst landet bei --and der Ausschnitt oft
+                 # bei dem Begriff, der zufällig am weitesten vorn steht,
+                 # während der Hauptbegriff gar nicht im Fenster liegt.
+                 # Stattdessen: alle Treffer des Hauptbegriffs/--or ($any)
+                 # sammeln (max. 200 gegen Riesentexte), pro Kandidat den
+                 # jeweils nächsten Treffer jedes --and-Begriffs suchen und
+                 # den Kandidaten mit der kleinsten Gesamtdistanz nehmen.
+                 # Passt die Spanne (Kandidat + nächste --and-Treffer) ins
+                 # Budget, wird das Fenster über die ganze Spanne gelegt,
+                 # sonst um den Kandidaten allein.
+                 | def dist($a; $b): ($a.offset - $b.offset) | if . < 0 then -. else . end;
+                 ([limit(200; $r.text | match($any; "g"))]) as $pm
+                 | ($ands | map(. as $a | [limit(200; $r.text | match($a | sc; "g"))])
+                    | map(select(length > 0))) as $am
+                 | ($pm | map(. as $m
+                              | {m: $m, near: [$am[] | min_by(dist($m; .))]}
+                              | . + {score: ([.near[] | dist($m; .)] | add // 0)})
+                    | min_by(.score)) as $best
+                 | ([$best.m] + $best.near) as $pts
+                 | ($pts | map(.offset) | min) as $lo
+                 | ($pts | map(.offset + .length) | max) as $hi
+                 # Passt die Spanne nicht ins Budget: pro Fundstelle ein eigenes
+                 # Teilfenster (Budget gleichmäßig aufgeteilt, abzüglich der
+                 # " … "-Trenner), überlappende Fenster werden verschmolzen.
+                 # So bleibt jeder Begriff sichtbar statt nur der Hauptbegriff.
                  | ($r.text | length) as $tlen
-                 | ((($budget - 2 - $mt.length) / 2 | floor) as $h
-                    | if $h > 0 then $h else 0 end) as $half
-                 | (if ($mt.offset - $half) > 0 then ($mt.offset - $half) else 0 end) as $start
-                 | (if ($mt.offset + $mt.length + $half) < $tlen then ($mt.offset + $mt.length + $half) else $tlen end) as $end
-                 | ($r.text[$start:$end] | gsub("\n"; " ")) as $window
+                 | (if ($hi - $lo) <= ($avail * $lines - 2)
+                    then [{offset: $lo, length: ($hi - $lo)}]
+                    else ($pts | sort_by(.offset) | unique_by(.offset)) end) as $marks
+                 | ((($budget - 3 * ($marks | length - 1)) / ($marks | length)) | floor) as $sub
+                 | ($marks | map(
+                     ((($sub - 2 - .length) / 2 | floor) | if . > 0 then . else 0 end) as $h
+                     | {s: (if (.offset - $h) > 0 then (.offset - $h) else 0 end),
+                        e: (if (.offset + .length + $h) < $tlen then (.offset + .length + $h) else $tlen end)})
+                    | reduce .[] as $w ([];
+                        if length > 0 and $w.s <= .[-1].e
+                        then .[:-1] + [{s: .[-1].s, e: ([.[-1].e, $w.e] | max)}]
+                        else . + [$w] end)) as $segs
+                 | $segs[0].s as $start
+                 | $segs[-1].e as $end
+                 | ($segs | map($r.text[.s:.e] | gsub("\n"; " ")) | join(" … ")) as $window
                  # $window ist char-genau auf $budget zugeschnitten, aber
                  # noch eine einzige lange Zeile -- wrap(...) bricht sie an
                  # Wortgrenzen auf gleich breite Zeilen um. Breite $avail - 1
