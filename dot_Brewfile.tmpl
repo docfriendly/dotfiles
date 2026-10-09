@@ -24,14 +24,22 @@ brew "wireguard-tools"
 brew "gh"
 brew "glow"
 brew "gping"
+
+# ══════════════════════════════════════════════════════════════════
+# CASKS (Linux + macOS - Homebrew kennt Casks auch unter Linux;
+# dort sind es AppImage/Binary-Varianten; gimp nicht auf ihht (Kiosk))
+# ══════════════════════════════════════════════════════════════════
+
+cask "kitty"
+{{- if ne .chezmoi.hostname "ihht" }}
+cask "gimp"
+{{- end }}
 {{ if eq .chezmoi.os "darwin" }}
 # ══════════════════════════════════════════════════════════════════
-# CASKS (nur macOS - Linuxbrew kennt keine Casks)
+# CASKS (nur macOS)
 # ══════════════════════════════════════════════════════════════════
 
 cask "nomachine"
-cask "gimp"
-cask "kitty"
 cask "keepassxc"
 cask "audacity"
 cask "libreoffice"
