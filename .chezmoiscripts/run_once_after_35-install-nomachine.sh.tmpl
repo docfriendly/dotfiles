@@ -8,13 +8,14 @@ set -eufo pipefail
 # .deb-Downloads. Es gibt keine stabile "latest"-URL (Version und
 # Mirror-Host stehen fest drin) - Version daher hier gepinnt statt
 # zur Laufzeit von der Download-Seite gescraped.
+# URL steht in .chezmoidata.yaml (downloads.nomachine).
 #
 # Update auf neuere Version: aktuellen Link auf
 # https://download.nomachine.com/download/?id=43&platform=linux
-# (Personal Edition, 64-bit .deb) prüfen und unten ersetzen.
+# (Personal Edition, 64-bit .deb) prüfen und in .chezmoidata.yaml ersetzen.
 # ══════════════════════════════════════════════════════════════════
 
-NOMACHINE_URL="https://web9001.nomachine.com/download/10.2/Linux/nomachine-personal-edition_10.2.3_1_amd64.deb"
+NOMACHINE_URL="{{ .downloads.nomachine }}"
 
 if dpkg -s nomachine >/dev/null 2>&1; then
   echo "==> NoMachine bereits installiert, überspringe."

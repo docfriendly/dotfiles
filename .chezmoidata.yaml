@@ -28,3 +28,8 @@ machines:
       # hier, sondern in ~/Sync/vault/tmux/ihht/resurrect-processes, siehe
       # dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'btop "syncthing --no-browser"'
+
+# Gepinnte Direkt-Downloads (kein apt/brew-Paket). Der Preflight
+# (run_once_before_02) prüft sie per HEAD, bevor die langen Skripte starten.
+downloads:
+  nomachine: "https://web9001.nomachine.com/download/10.2/Linux/nomachine-personal-edition_10.2.3_1_amd64.deb"

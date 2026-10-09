@@ -76,21 +76,33 @@ Das löst automatisch die komplette Kette aus:
 3. Dotfiles werden geschrieben (`.bashrc`, `.bash_aliases`, `.Brewfile`,
    `.tool-versions`, ...) – bei `encrypted_`-Dateien fragt chezmoi an
    dieser Stelle interaktiv nach der age-Passphrase
-4. `run_once_after_10-install-brew-bundle.sh.tmpl` – installiert alle
+4. **Alle `sudo`-Skripte zuerst, die langen Skripte zuletzt** (seit
+   09.10.2026): Das sudo-Passwort wird früh abgefragt (`sudo -v` im
+   Preflight, `run_once_before_02`), danach kann man sich zurücklehnen.
+   chezmoi bricht beim ersten Fehler ab – kurze, fehleranfällige
+   Installer (Downloads, apt) laufen deshalb vor dem stundenlangen
+   Kompilieren. Reihenfolge der `after`-Skripte: 15, 35–44, 46, 51–53
+   (sudo/apt/Downloads), dann 70 (Brew-Bundle), 72 (asdf), 74 (tmux),
+   75 (nvim). Das sudo-Ticket läuft nach 15 min ab; deshalb darf nach
+   den sudo-Skripten kein weiteres sudo mehr kommen.
+5. `run_once_after_35-install-nomachine.sh.tmpl` – nur unter Linux
+   (macOS läuft über den `cask "nomachine"` im Brewfile):
+   lädt das gepinnte `.deb` von NoMachine herunter, prüft es mit
+   `dpkg-deb --info` und installiert es per `sudo apt-get install`. Gibt
+   kein apt/nala-Paket, daher direkter Download; Version steht in
+   `.chezmoidata.yaml` (`downloads.nomachine`), da NoMachine keine stabile
+   "latest"-URL anbietet. Veraltete Links antworten mit 302 auf die
+   Startseite – das fängt der Preflight (`run_once_before_02`) ab
+6. `run_once_after_70-install-brew-bundle.sh.tmpl` – installiert alle
    Pakete aus `~/.Brewfile` (starship, zoxide, asdf, ripgrep, fzf, ...)
    und richtet die fzf-Shell-Integration nicht-interaktiv ein
-5. `run_once_after_20-install-asdf-tools.sh.tmpl` – registriert die
+7. `run_once_after_72-install-asdf-tools.sh.tmpl` – registriert die
    asdf-Plugins und installiert alle Versionen aus `.tool-versions`
-6. `run_once_after_30-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
+   (kompiliert Python/Ruby, dauert)
+   `run_once_after_74-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
    Plugin Manager) und installiert alle in `.tmux.conf` deklarierten
-   Plugins nicht-interaktiv
-7. `run_once_after_35-install-nomachine.sh.tmpl` – nur unter Linux
-   (macOS läuft über den `cask "nomachine"` im Brewfile, siehe Schritt 4):
-   lädt das gepinnte `.deb` von NoMachine herunter und installiert es per
-   `sudo apt-get install` – fragt dabei einmalig interaktiv nach dem
-   sudo-Passwort. Gibt kein apt/nala-Paket, daher direkter Download;
-   Version steht fest im Skript, da NoMachine keine stabile "latest"-URL
-   anbietet (siehe Kommentar im Skript zum Aktualisieren)
+   Plugins nicht-interaktiv; `run_once_after_75-install-nvim-plugins`
+   holt die LazyVim-Plugins
 8. `run_once_after_42-configure-sshd-iphone-acceptenv.sh.tmpl` – nur unter
    Linux: ergänzt `AcceptEnv IPHONE_CLIENT*` in `/etc/ssh/sshd_config` und
    lädt `sshd` neu, siehe [Termius/iPhone: tmux-Statuszeile](#termiusiphone-tmux-statuszeile)
@@ -490,7 +502,7 @@ Skriptinhalt nicht, wird es bei künftigen `apply`-Läufen dauerhaft
 **tmux-Plugins schlagen mit `unknown variable: TMUX_PLUGIN_MANAGER_PATH` fehl**
 
 Passiert nur, wenn auf der Maschine schon ein tmux-Server läuft, *bevor*
-`run_once_after_30-install-tmux-plugins.sh.tmpl` zum ersten Mal ausgeführt
+`run_once_after_74-install-tmux-plugins.sh.tmpl` zum ersten Mal ausgeführt
 wird (z.B. bei einer bestehenden Maschine, nicht bei einer echten
 Neuinstallation). Ein laufender tmux-Server liest seine Config nur beim
 eigenen Start – das `set-environment -g TMUX_PLUGIN_MANAGER_PATH ...` aus

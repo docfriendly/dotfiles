@@ -1,0 +1,29 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ if ne .chezmoi.os "darwin" -}}
+# ══════════════════════════════════════════════════════════════════
+# PREFLIGHT (nur Linux)
+# 1. sudo-Passwort so früh wie möglich abfragen, damit man sich danach
+#    zurücklehnen kann. Das Ticket gilt 15 min (tty-gebunden) - daher
+#    liegen alle sudo-Skripte (15, 35-53) VOR den langen Kompilier-
+#    Skripten (70-75).
+# 2. Gepinnte Download-URLs (.chezmoidata.yaml, downloads.*) prüfen.
+#    Veraltete Links antworten mit 302 auf eine HTML-Startseite; besser
+#    nach 10 s abbrechen als nach Stunden in Skript 35.
+# ══════════════════════════════════════════════════════════════════
+
+sudo -v
+
+check_url() {
+  local url="$1" type
+  type="$(curl -sIL -m 20 -o /dev/null -w '%{http_code} %{content_type}' "$url" || true)"
+  case "$type" in
+    "200 text/html"*|"200 "|"") echo "FEHLER: $url liefert kein Paket ($type) - Link veraltet?" >&2; return 1 ;;
+    200*) echo "==> OK: $url" ;;
+    *) echo "FEHLER: $url -> $type" >&2; return 1 ;;
+  esac
+}
+
+check_url "{{ .downloads.nomachine }}"
+{{ end -}}
