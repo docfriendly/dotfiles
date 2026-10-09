@@ -33,4 +33,27 @@ fi
 #  chezmoi verwaltet wird - läuft daher bewusst als run_once_after)
 # ══════════════════════════════════════════════════════════════════
 
-"$TPM_DIR/bin/install_plugins"
+# TPM fragt per `tmux show-environment -g` einen LAUFENDEN tmux-Server nach
+# TMUX_PLUGIN_MANAGER_PATH (die Variable setzt unsere tmux.conf). Läuft der
+# Bootstrap in einer tmux-Session, die vor dieser Config gestartet wurde,
+# kennt dieser Server sie nicht -> "unknown variable ... Aborting".
+# Läuft gar kein tmux, startet TPM selbst einen Server mit der vollen Config
+# und löst dabei continuum-restore aus (Sessions/Prozesse wiederherstellen).
+# Beides vermeiden: ein privater, minimaler tmux-Server (eigenes
+# TMUX_TMPDIR, ohne Config), der nur die eine Variable kennt. Der laufende
+# Server des Users bleibt unberührt.
+
+TMUX_PRIVATE_DIR="$(mktemp -d)"
+# ACHTUNG: `env -u TMUX` ist Pflicht. Ist $TMUX gesetzt (Skript läuft in einer
+# tmux-Session), ignoriert tmux TMUX_TMPDIR und nimmt den Socket aus $TMUX --
+# kill-server würde dann den ECHTEN Server des Users beenden (passiert am
+# 09.10.2026, alle Sessions weg).
+trap 'env -u TMUX TMUX_TMPDIR="$TMUX_PRIVATE_DIR" tmux kill-server 2>/dev/null || true; rm -rf "$TMUX_PRIVATE_DIR"' EXIT
+
+(
+  unset TMUX
+  export TMUX_TMPDIR="$TMUX_PRIVATE_DIR"
+  tmux -f /dev/null new-session -d -s tpm-bootstrap
+  tmux set-environment -g TMUX_PLUGIN_MANAGER_PATH "$HOME/.config/tmux/plugins/"
+  "$TPM_DIR/bin/install_plugins"
+)

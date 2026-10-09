@@ -62,7 +62,6 @@ set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
 set -g @plugin 'nhdaly/tmux-better-mouse-mode'
 set -g @plugin 'Morantron/tmux-fingers'
-set -g @plugin 'Morantron/tmux-open'
 
 # tmux-better-mouse-mode: in Vollbild-Programmen (vim, less, man) Scroll-Events
 # als Pfeiltasten/PageUp statt Copy-Mode durchreichen (siehe
@@ -99,11 +98,6 @@ set -g @fingers-main-action '{{ .chezmoi.homeDir }}/.local/bin/osc52-copy'
 # " cd <dir>" in die aktive Pane (fuehrendes Leerzeichen -> nicht in History).
 # Grosses G passt zum grossen F von fingers. Details im Vault-Ordner oben.
 bind G run-shell -b '{{ .chezmoi.homeDir }}/.local/bin/tmux-cd-buffer-dir'
-
-# tmux-open: ergaenzt copy-mode-vi um "o" (im Standardbrowser oeffnen) und
-# "C-o" (mit $EDITOR oeffnen) fuer die aktuelle Selektion -- greift auch auf
-# per tmux-fingers ausgewaehlte Hints. Keine eigene Prefix-Bindung noetig,
-# beide Tasten sind im copy-mode-vi-Table frei.
 
 # Restart processes with resurrect-plugin
 # Maschinen-/kundenspezifische Ziele (IPs, Hostnames) gehoeren NICHT in
