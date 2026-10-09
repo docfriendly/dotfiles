@@ -3,24 +3,34 @@
 # SSH-Verbindungen. Optional vorangestellt: nur ssh bzw. nur mosh betrachten (Default all;
 # Starship nutzt ssh fuer ↓ und mosh fuer ⇣, je mit eigenem Cache).
 #   text : "<Name> <Alter> [+N]" der aeltesten Gegenstelle, z. B. "kartoffel 27h +1"
-#          (bei mosh "xN" = Gesamtzahl statt "+N")
+#          (bei mosh "xN" = Gesamtzahl statt "+N"; "↻45m" = seit 45 min wieder aktiv, siehe unten)
 #   ok   : Exit 0, wenn Verbindungen bestehen und alle unauffaellig sind
 #   warn : Exit 0, wenn mind. eine Gegenstelle unbekannt ist ODER laenger als
 #          SSH_IN_WARN_H Stunden (Default 8) besteht
 #   name : Name zu einer IP (Exit 1, wenn unbekannt)
-#   list : eine Zeile je Verbindung "ip port alter_s ssh|mosh|moshz name" (zum Debuggen)
+#   list : eine Zeile je Verbindung "ip port alter_s ssh|mosh|moshz res name" (zum Debuggen;
+#          res = Sekunden seit Wiederaktivwerden, -1 = keine Unterbrechung)
+#   poll : nur den Zustand der mosh-server fortschreiben (z. B. per cron; sonst merkt
+#          sich das Skript Wechsel nur, wenn gerade ein Prompt gezeichnet wird)
 #   idle <pid> : Sekunden seit der mosh-server <pid> zuletzt lief (siehe unten)
+#   eingabe <pid> : Sekunden seit der letzten Tastatureingabe im tmux-Client dieses Servers
+#   zustand <pid> : "mosh|moshz <sekunden> eingabe|cpu" (so wie der Prompt entscheidet)
 # Mosh-Sitzungen zaehlen mit (Prozess mosh-server): IP = Quelle der Start-SSH-Verbindung
 # (Roaming-Wechsel unsichtbar), Alter = Alter des mosh-server, Text bekommt " mosh".
 # Namen stehen in ~/.ssh/config (Host + HostName, nur Eintraege ohne Wildcard; "Include" wird
 # eine Ebene tief gelesen, z. B. ~/Sync/vault/ssh/common/hosts.conf); fuer
-# mosh hat drei Zustaende: aktiv (Client meldet sich, Heartbeat ~3 s), getrennt ("moshz":
-# der Server lebt weiter, aber seit > MOSH_AKTIV_S Sekunden (Default 120) kam nichts mehr)
-# und gar nicht vorhanden. Getrennte zaehlen im Prompt nicht mit (kein Text, keine Warnung),
-# `sessions` listet sie. Messung ohne root: se.exec_start in /proc/<pid>/sched = Zeitpunkt,
-# an dem der Server zuletzt auf der CPU lief; ein verbundener Server wacht je Heartbeat auf,
-# ein getrennter steht still (per Test mit eingefrorenem mosh-client belegt). Grenze: Ausgabe
-# der Shell weckt den Server auch ohne Client -> dann gilt er als aktiv.
+# mosh hat drei Zustaende: aktiv ("mosh"), ruhend/getrennt ("moshz": der Server lebt weiter,
+# aber niemand ist mehr da) und gar nicht vorhanden. Ruhende zaehlen im Prompt nicht mit
+# (kein Text, keine Warnung), `sessions` listet sie.
+# "Aktiv" = ein Mensch war da: letzte Tastatureingabe im tmux-Client unter dem Server
+# vor <= MOSH_EINGABE_S Sekunden (Default 600). Ohne tmux-Client Rueckfall auf den CPU-Lauf:
+# se.exec_start in /proc/<pid>/sched = Zeitpunkt, an dem der Server zuletzt lief; ein
+# verbundener Server wacht je Heartbeat auf, ein getrennter steht still (mit eingefrorenem
+# mosh-client belegt), Schwelle MOSH_AKTIV_S (Default 120). Grenze der CPU-Messung: Ausgabe
+# der Shell/tmux weckt den Server auch ohne Client -> dann gilt er als aktiv.
+# "↻45m": Wechsel ruhend -> aktiv bzw. Eingabepause > MOSH_EINGABE_S zwischen zwei Aufrufen
+# wird in ~/.cache/ssh-in-status.mosh-seit festgehalten (nur wenn jemand hinsieht, also
+# Prompt/sessions/poll); ohne Unterbrechung steht kein ↻ da.
 # Clients, die nie von hier aus verbinden (iPhone), eine Kommentarzeile dort:
 #     # gegenstelle 192.168.1.1 iphone
 # Alter = Alter des sshd-Monitorprozesses der PTY-Sitzung (Port-Zuordnung ueber
@@ -30,10 +40,12 @@
 # sessions --herkunft. Ergebnis wird 5 s gecacht (Starship ruft je Prompt mehrfach).
 WARN_H=${SSH_IN_WARN_H:-8}
 AKTIV_S=${MOSH_AKTIV_S:-120}
+EIN_S=${MOSH_EINGABE_S:-600}
 CFG="$HOME/.ssh/config"
 KIND=all
 case "$1" in ssh|mosh|all) KIND=$1; shift ;; esac
 CACHE="${XDG_RUNTIME_DIR:-/tmp}/ssh-in-status.$(id -u).$KIND"
+STATE="$HOME/.cache/ssh-in-status.mosh-seit"    # je mosh-server: pid zustand seit_epoch
 
 # cfg_lines: ~/.ssh/config mit expandierten "Include"-Zeilen (eine Ebene, ~ und Glob)
 cfg_lines() {
@@ -100,10 +112,37 @@ mosh_idle() {
     awk -v u="$up" -v e="$es" 'BEGIN { d = u - e / 1000; printf "%d\n", (d < 0 ? 0 : d) }'
 }
 
+# mosh_eingaben: Zeilen "<mosh-server-pid> <epoch>" = letzte Tastatureingabe im tmux-Client,
+# der unter dem Server haengt (Vorfahrenkette des Clients, wie `sessions`). Server ohne
+# tmux-Client (oder fremde User) fehlen in der Ausgabe.
+mosh_eingaben() {
+    local -A par isa last
+    local pid ppid args cpid act q n
+    while read -r pid ppid args; do
+        par[$pid]=$ppid
+        [[ $args =~ ^(/[^[:space:]]*/)?mosh-server([[:space:]]|$) ]] && isa[$pid]=1
+    done < <(ps -eo pid=,ppid=,args= 2>/dev/null)
+    [ "${#isa[@]}" -gt 0 ] || return 0
+    while read -r cpid act; do
+        [ -n "$act" ] || continue
+        q=$cpid; n=0
+        while [ "${q:-0}" -gt 1 ] && [ "$n" -lt 40 ]; do
+            if [ -n "${isa[$q]}" ]; then
+                [ "$act" -gt "${last[$q]:-0}" ] && last[$q]=$act
+                break
+            fi
+            q=${par[$q]}; n=$((n + 1))
+        done
+    done < <(tmux list-clients -F '#{client_pid} #{client_activity}' 2>/dev/null)
+    for q in "${!last[@]}"; do printf '%s %s\n' "$q" "${last[$q]}"; done
+}
+
 # berechnet Zeilen "ip port alter_s" (alter_s = -1: PTY-los/unbekannt) auf stdout
 verbindungen() {
     local -A et age
     local pid ppid ets args tty p conn cip cport idle kd mic=0
+    local now start seit res oldstate newstate= la ein mp
+    local -A oz os ola lain
     local -a cand moshpids
     "$HOME/.local/bin/mic-tunnel-aktiv" in && mic=1
     while read -r pid ppid ets args; do
@@ -131,25 +170,58 @@ verbindungen() {
     done < <(ss -tnH state established '( sport = :22 )' 2>/dev/null)
     # mosh: kein TCP-Socket mehr nach dem Start; Quelle der STARTVERBINDUNG steht in der
     # Umgebung des mosh-server (fremde User: nicht lesbar -> "?" = unbekannt -> warn).
+    # Zustandsdatei: seit wann ein mosh-server im aktuellen Zustand ist (aktiv/getrennt).
+    # Aenderungen merkt sich nur, wer gerade hinsieht -> `poll` per cron (jede Minute).
+    now=$(date +%s)
+    oldstate=$(cat "$STATE" 2>/dev/null)
+    while read -r pid kd seit la; do
+        [ -n "$pid" ] || continue
+        oz[$pid]=$kd; os[$pid]=$seit; ola[$pid]=${la:-0}
+    done <<<"$oldstate"
+    while read -r mp la; do [ -n "$mp" ] && lain[$mp]=$la; done < <(mosh_eingaben)
     for pid in "${moshpids[@]}"; do
         conn=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p')
         read -r cip _ <<<"$conn"
-        idle=$(mosh_idle "$pid")
-        kd=mosh; [ -n "$idle" ] && [ "$idle" -gt "$AKTIV_S" ] && kd=moshz
-        printf '%s mosh-%s %s %s\n' "${cip:-?}" "$pid" "${et[$pid]:--1}" "$kd"
+        la=${lain[$pid]:-0}
+        if [ "$la" -gt 0 ]; then
+            # "da" = letzte Eingabe im tmux-Client juengst (Default 10 min)
+            kd=mosh; [ $((now - la)) -gt "$EIN_S" ] && kd=moshz
+        else
+            # kein tmux-Client: Rueckfall auf den CPU-Lauf des Servers
+            idle=$(mosh_idle "$pid")
+            kd=mosh; [ -n "$idle" ] && [ "$idle" -gt "$AKTIV_S" ] && kd=moshz
+        fi
+        start=$((now - ${et[$pid]:-0}))
+        if [ "${oz[$pid]}" = "$kd" ] && [ "${os[$pid]:-0}" -ge $((start - 2)) ]; then
+            seit=${os[$pid]}                      # Zustand unveraendert
+            # Pause zwischen zwei Blicken (Eingaben > EIN_S auseinander): Wiederbeginn ~ jetzige Eingabe
+            if [ "$la" -gt 0 ] && [ "${ola[$pid]:-0}" -gt 0 ] && [ $((la - ${ola[$pid]})) -gt "$EIN_S" ]; then seit=$la; fi
+        elif [ -z "${oz[$pid]}" ] && [ "$kd" = mosh ]; then
+            seit=$start                           # neu gesehen und aktiv: seit Start
+        else
+            seit=$now                             # Wechsel (oder pid-Wiederverwendung)
+        fi
+        newstate+="$pid $kd $seit $la"$'\n'
+        # res = Sekunden seit dem Wiederaktivwerden (-1: seit Start aktiv, nichts anzuzeigen)
+        res=-1; [ "$kd" = mosh ] && [ $((seit - start)) -gt 60 ] && res=$((now - seit))
+        printf '%s mosh-%s %s %s %s\n' "${cip:-?}" "$pid" "${et[$pid]:--1}" "$kd" "$res"
     done
+    if [ "$newstate" != "$oldstate"$'\n' ] && [ "$newstate" != "$oldstate" ]; then
+        mkdir -p "${STATE%/*}" 2>/dev/null
+        printf '%s' "$newstate" >"$STATE.$$" 2>/dev/null && mv -f "$STATE.$$" "$STATE"
+    fi
 }
 
 # schreibt den Cache: Zeile 1 = none|ok|warn, Zeile 2 = Text
 berechnen() {
-    local ip port a kd n sc total=0 warn=0 first_ip first_age=-2
-    local -A cnt max maxs kind
-    while read -r ip port a kd; do
+    local ip port a kd res n sc total=0 warn=0 first_ip first_age=-2
+    local -A cnt max maxs kind rs
+    while read -r ip port a kd res; do
         [ "$kd" = moshz ] && continue    # getrennt: im Prompt nicht mitzaehlen
         total=$((total + 1))
         cnt[$ip]=$(( ${cnt[$ip]:-0} + 1 ))
         max[$ip]=${max[$ip]:--1}; kind[$ip]=${kind[$ip]:-$kd}
-        if [ "$a" -gt "${max[$ip]}" ]; then max[$ip]=$a; kind[$ip]=$kd; fi
+        if [ "$a" -gt "${max[$ip]}" ]; then max[$ip]=$a; kind[$ip]=$kd; rs[$ip]=${res:--1}; fi
         # Alters-Warnung nur für ssh: ein mosh-server lebt per Design Tage (Server bleibt
         # nach dem Verbindungsende bestehen), das Alter allein sagt dort nichts.
         [ "$kd" = ssh ] && [ "$a" -gt "${maxs[$ip]:--1}" ] && maxs[$ip]=$a
@@ -168,6 +240,9 @@ berechnen() {
     local text="${n:-$first_ip}"
     [ "$first_age" -ge 0 ] && text="$text $(alter_kurz "$first_age")"
     [ "$KIND" = all ] && [ "${kind[$first_ip]}" = mosh ] && text="$text mosh"
+    # mosh: "↻45m" = seit so langer Zeit wieder aktiv (nach Standby/Funkloch), nur wenn es
+    # eine Unterbrechung gab; ohne ↻ ist die Sitzung seit ihrem Start durchgehend aktiv.
+    [ "${kind[$first_ip]}" = mosh ] && [ "${rs[$first_ip]:--1}" -ge 0 ] && text="$text ↻$(alter_kurz "${rs[$first_ip]}")"
     # mosh: Gesamtzahl ("x2") statt "+1" -- die Sitzungen sind meist langlebig und gleichartig
     if [ "$total" -gt 1 ]; then
         if [ "$KIND" = mosh ]; then text="$text x$total"; else text="$text +$((total - 1))"; fi
@@ -185,10 +260,20 @@ cached() {
 
 case "$1" in
     name)  n=$(name_of "$2"); [ -n "$n" ] && printf '%s\n' "$n" ;;
-    list)  verbindungen | while read -r ip port a kd; do printf '%s %s %s %s %s\n' "$ip" "$port" "$a" "$kd" "$(name_of "$ip")"; done ;;
+    list)  verbindungen | while read -r ip port a kd res; do printf '%s %s %s %s %s %s\n' "$ip" "$port" "$a" "$kd" "${res:--1}" "$(name_of "$ip")"; done ;;
+    poll)  verbindungen >/dev/null ;;
     ok)    cached; [ "$(sed -n 1p "$CACHE")" = ok ] ;;
     warn)  cached; [ "$(sed -n 1p "$CACHE")" = warn ] ;;
     text)  cached; sed -n 2p "$CACHE" ;;
     idle)  mosh_idle "$2" ;;
-    *)     echo "Aufruf: ssh-in-status ok|warn|text|name <ip>|idle <pid>|list" >&2; exit 2 ;;
+    eingabe) la=$(mosh_eingaben | awk -v p="$2" '$1 == p { print $2 }'); [ -n "$la" ] && echo $(( $(date +%s) - la )) ;;
+    zustand) # "<mosh|moshz> <sekunden> <eingabe|cpu>" fuer `sessions`
+             la=$(mosh_eingaben | awk -v p="$2" '$1 == p { print $2 }')
+             if [ -n "$la" ]; then
+                 s=$(( $(date +%s) - la )); [ "$s" -gt "$EIN_S" ] && echo "moshz $s eingabe" || echo "mosh $s eingabe"
+             else
+                 s=$(mosh_idle "$2") || exit 1
+                 [ "$s" -gt "$AKTIV_S" ] && echo "moshz $s cpu" || echo "mosh $s cpu"
+             fi ;;
+    *)     echo "Aufruf: ssh-in-status ok|warn|text|name <ip>|idle <pid>|eingabe <pid>|zustand <pid>|list|poll" >&2; exit 2 ;;
 esac

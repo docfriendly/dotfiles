@@ -368,17 +368,19 @@ _proc_descendants() {
     done
 }
 
-# _mosh_zustand <pid>: " aktiv" bzw. " GETRENNT (still seit 3h)" aus ssh-in-status idle;
-# leer, wenn nicht messbar (fremder User ohne Leserecht auf /proc/<pid>/sched).
+# _mosh_zustand <pid>: " aktiv (Eingabe vor 2 s)" bzw. " RUHT (keine Eingabe seit 3h)"; ohne
+# tmux-Client " aktiv (CPU)" / " GETRENNT (still seit 3h)" (siehe ssh-in-status zustand).
+# Leer, wenn nicht messbar (fremder User ohne Leserecht auf /proc/<pid>/sched).
 _mosh_zustand() {
-    local idle
-    idle=$("$HOME/.local/bin/ssh-in-status" idle "$1" 2>/dev/null) || return 0
-    [ -n "$idle" ] || return 0
-    if [ "$idle" -gt "${MOSH_AKTIV_S:-120}" ]; then
-        printf ' GETRENNT (still seit %s)' "$(_dauer "$idle")"
-    else
-        printf ' aktiv'
-    fi
+    local kd s q
+    read -r kd s q < <("$HOME/.local/bin/ssh-in-status" zustand "$1" 2>/dev/null)
+    [ -n "$s" ] || return 0
+    case "$kd:$q" in
+        mosh:eingabe)  printf ' aktiv (Eingabe vor %s)' "$(_dauer "$s")" ;;
+        moshz:eingabe) printf ' RUHT (keine Eingabe seit %s)' "$(_dauer "$s")" ;;
+        moshz:*)       printf ' GETRENNT (still seit %s)' "$(_dauer "$s")" ;;
+        *)             printf ' aktiv (CPU)' ;;
+    esac
 }
 
 # _sessions_mosh: pro laufendem mosh-server eine Zeile (PID, User, Alter, UDP-Port,
