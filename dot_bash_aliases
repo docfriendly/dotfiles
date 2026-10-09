@@ -129,41 +129,23 @@ _hinweis() {
 [ -r "$HOME/.bash_functions" ] && . "$HOME/.bash_functions"
 
 # ══════════════════════════════════════════════════════════════════
-# BILD-PASTE AUS DER ZWISCHENABLAGE PER KITTY-CLIPBOARD-PROTOKOLL
+# BILD-PASTE (Strg+V) -- HIER BEWUSST NICHTS MEHR GEBUNDEN
 # ══════════════════════════════════════════════════════════════════
 
-# Strg+V (überschreibt "quoted-insert" -- interaktiv praktisch nie genutzt):
-# holt ein Bild aus der Zwischenablage des PHYSISCHEN Kitty-Terminals, auch
-# wenn diese Shell über SSH auf einem anderen Rechner läuft (z.B. x220 <- SSH
-# von x230 aus). Kittys eigenes Clipboard-Protokoll (OSC 5522) reist in-band
-# durch die bestehende Terminalverbindung mit, braucht also weder eigenes
-# Remote-Control-Setup noch einen zweiten Tunnel -- einzige Voraussetzung ist
-# funktionierendes tmux-Passthrough (bei uns schon aktiv, siehe tmux.conf).
-# "kitten clipboard -g <datei.png>" (statt --mime + stdout-Umleitung) lässt
-# Kitty selbst jedes Rasterbild auf der Zwischenablage nach PNG konvertieren,
-# unabhängig vom tatsächlichen Quell-Mimetype -- robuster als ein exaktes
-# --mime image/png, das bei z.B. JPEG im Clipboard leer ausgegangen wäre.
-# Der fertige Dateipfad wird an der Cursorposition in die aktuelle
-# Kommandozeile eingefügt, exakt wie beim Drag&Drop einer Datei ins Terminal
-# -- Claude Code erkennt einen eingefügten Bildpfad von selbst und liest ihn.
-# clipboard_control steht in kitty.conf bewusst auf dem Default
-# "read-clipboard-ask": jeder Zugriff löst auf dem Rechner mit der
-# physischen Tastatur ein Bestätigungs-Popup aus, keine automatische
-# Freigabe (Nutzerentscheidung 22.09.2026, gegen eine Auto-Freigabe).
-_kitty_paste_image() {
-    local dir="$HOME/.cache/kitty-clipboard-images"
-    mkdir -p "$dir"
-    local file="$dir/kitty-pasted-$(date +%Y%m%d-%H%M%S).png"
-
-    if kitten clipboard -g "$file" >/dev/null 2>&1 && [ -s "$file" ]; then
-        READLINE_LINE="${READLINE_LINE:0:$READLINE_POINT}$file${READLINE_LINE:$READLINE_POINT}"
-        READLINE_POINT=$(( READLINE_POINT + ${#file} ))
-    else
-        rm -f "$file"
-        _hinweis "Kein Bild in der Zwischenablage (oder Popup abgelehnt)"
-    fi
-}
-bind -x '"\C-v": _kitty_paste_image'
+# Früher stand hier eine Readline-Bindung (bind -x '\C-v'), die per
+# `kitten clipboard -g <datei>` (kitty-Protokoll OSC 5522) ein Bild aus der
+# Zwischenablage des physischen Terminals holte. Entfernt am 09.10.2026:
+# das hängt durch SSH + tmux IMMER (kein Popup, kein Timeout), weil tmux die
+# kitty-Escape-Sequenzen von Programmen im Pane nicht durchreicht -- getestet
+# mit tmux 3.5a UND 3.7b; ohne tmux (reine SSH-Shell) geht es (rc=0).
+# Die Bindung war seit 22.09.2026 ohnehin wirkungslos, weil Kitty auf x230
+# Strg+V vorher abfängt.
+#
+# Der funktionierende Weg läuft komplett auf x230 (nicht in diesem Repo):
+# kitty.conf `map ctrl+v launch --type=background ~/.local/bin/kitty-remote-paste.sh`
+# -> xclip lokal, Datei per ssh nach x220 (/tmp/paste-*.png), Pfad per
+# `kitten @ send-text` ins fokussierte Fenster getippt; Fehler als Toast.
+# Doku + Skript: ~/Sync/vault/SECOND_BRAIN/kitty-bild-paste-ssh-tmux/
 
 # `chezmoi cd` überschreiben: statt einer echten Subshell nur ein
 # `cd` in der aktuellen Shell, damit sich das nicht mehr verschachteln
