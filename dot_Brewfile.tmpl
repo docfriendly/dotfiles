@@ -23,15 +23,15 @@ brew "wireguard-go"
 brew "wireguard-tools"
 brew "gh"
 brew "glow"
-brew "gimp"
 brew "gping"
-brew "kitty"
 {{ if eq .chezmoi.os "darwin" }}
 # ══════════════════════════════════════════════════════════════════
 # CASKS (nur macOS - Linuxbrew kennt keine Casks)
 # ══════════════════════════════════════════════════════════════════
 
 cask "nomachine"
+cask "gimp"
+cask "kitty"
 cask "keepassxc"
 cask "audacity"
 cask "libreoffice"
