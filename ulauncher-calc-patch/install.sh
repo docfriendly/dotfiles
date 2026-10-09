@@ -90,7 +90,8 @@ if [[ "$VERSION" == 5.15.* ]]; then
     sudo cp "$SCRIPT_DIR/CalcResultItem.py" "$CALC_DIR/CalcResultItem.py"
     sudo cp "$SCRIPT_DIR/CalcMode.py" "$CALC_DIR/CalcMode.py"
     sudo rm -rf "$CALC_DIR/__pycache__"
-    python3 -m py_compile "$CALC_DIR/CalcHistory.py" "$CALC_DIR/CalcResultItem.py" "$CALC_DIR/CalcMode.py"
+    # sudo: __pycache__ liegt im root-eigenen Paketpfad, als User -> Errno 13
+    sudo python3 -m py_compile "$CALC_DIR/CalcHistory.py" "$CALC_DIR/CalcResultItem.py" "$CALC_DIR/CalcMode.py"
     echo "  Calc-Patch installiert, Syntax geprueft"
 else
     echo "  Ulauncher $VERSION ist nicht 5.15.x: Calc-Patch uebersprungen"
