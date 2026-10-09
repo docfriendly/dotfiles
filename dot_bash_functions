@@ -598,6 +598,9 @@ fd() {
 #   --or X   zusätzlicher Alternativbegriff (Suchbegriff ODER X)
 #   --and X  Nachricht muss zusätzlich auch X enthalten
 #   --not X  Nachrichten mit X werden ausgeschlossen
+#   --pasted <pasted_content>-Blöcke (eingefügter Fremdtext) zählen als normale
+#            Treffer; ohne die Option werden sie ignoriert, Nachrichten die NUR
+#            dort treffen erscheinen als gedimmte "⎘"-Zeile (nichts geht verloren)
 #   --count  nur Übersicht pro Session (Trefferzahl, letztes Datum, Titel),
 #            nach Trefferzahl sortiert, plus Gesamtsumme
 # Beispiel: claudegrep --count strictmodes --and authorized_keys --not forensic
@@ -642,6 +645,7 @@ claudegrep() {
     # dafür keinen Zugriff auf "das nächste Element" bietet.
     local all=0
     local count=0
+    local pasted=0
     local lines_opt=1
     local args=() ors=() ands=() nots=()
     while [ $# -gt 0 ]; do
@@ -656,6 +660,10 @@ claudegrep() {
                 ;;
             --count)
                 count=1
+                shift
+                ;;
+            --pasted)
+                pasted=1
                 shift
                 ;;
             # --or/--and/--not: je ein weiterer Regex, beliebig oft
@@ -680,7 +688,7 @@ claudegrep() {
         esac
     done
     if [ "${#args[@]}" -eq 0 ]; then
-        echo "Verwendung: claudegrep [--all] [--lines N] [--count] [--or X] [--and X] [--not X] <Suchbegriff> [Verzeichnis]" >&2
+        echo "Verwendung: claudegrep [--all] [--lines N] [--count] [--pasted] [--or X] [--and X] [--not X] <Suchbegriff> [Verzeichnis]" >&2
         echo "            claudegrep show <Session-ID-Präfix | Suchbegriff>" >&2
         return 1
     fi
@@ -698,7 +706,7 @@ claudegrep() {
     # einer kryptischen Fehlermeldung auffallen.
     case "$lines_opt" in
         ''|*[!0-9]*|0)
-            echo "Verwendung: claudegrep [--all] [--lines N] [--count] [--or X] [--and X] [--not X] <Suchbegriff> [Verzeichnis]  (N muss eine positive Zahl sein)" >&2
+            echo "Verwendung: claudegrep [--all] [--lines N] [--count] [--pasted] [--or X] [--and X] [--not X] <Suchbegriff> [Verzeichnis]  (N muss eine positive Zahl sein)" >&2
             return 1
             ;;
     esac
@@ -870,6 +878,7 @@ claudegrep() {
         --argjson cols "$cols" \
         --argjson lines "$lines_opt" \
         --arg count "$count" \
+        --arg pasted "$pasted" \
         --argjson ors "$ors_json" --argjson ands "$ands_json" --argjson nots "$nots_json" \
         --slurpfile tmap "$titlemap" \
         --arg c_ts "$c_ts" --arg c_role "$c_role" --arg c_loc "$c_loc" --arg c_dim "$c_dim" \
@@ -925,12 +934,24 @@ claudegrep() {
              | if type == "string" then .
                else ([.[] | select(.type == "text") | .text] | join(" "))
                end) as $text
-          # test($p): Regex-Test (nur ja/nein), Smartcase über sc.
+          # <pasted_content>-Blöcke (vom Harness eingefügter Fremdtext, z.B.
+          # eine eingefügte claudegrep-Ausgabe) zählen standardmäßig nicht
+          # als Treffer: $clean ist der Text ohne diese Blöcke. Trifft nur
+          # der Volltext, aber nicht $clean, ist es ein "hidden"-Treffer --
+          # er wird nicht verschluckt, sondern unten als kurze gedimmte
+          # Zeile gezeigt. --pasted schaltet das ab (alles zählt normal).
+          # (?s) = Punkt matcht auch Zeilenumbrüche, .*? = nicht gierig;
+          # das schließende Tag trägt oft ein id-Attribut.
+          | ($text | gsub("<pasted_content\\b[^>]*>(?s:.*?)</pasted_content\\b[^>]*>"; " ")) as $clean
+          | (if $pasted == "1" then $text else $clean end) as $t
           | select($text != ""
                    and ($text | test($any))
                    and ($ands | all(. as $a | $text | test($a | sc)))
-                   and ($nots | all(. as $n | $text | test($n | sc) | not)))
-          | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text};
+                   and ($nots | all(. as $n | $t | test($n | sc) | not)))
+          | (($pasted != "1")
+             and (($clean | test($any) | not)
+                  or ($ands | any(. as $a | $clean | test($a | sc) | not)))) as $hidden
+          | {sid: .sessionId, ts: .timestamp, role: .message.role, cwd: (.cwd // "?"), text: $text, hidden: $hidden};
 
         # --count: statt der Einzeltreffer nur eine Übersicht pro Session
         # (Trefferzahl, letzter Treffer, Titel, Pfad), nach Trefferzahl
@@ -938,7 +959,9 @@ claudegrep() {
         # und liefert pro Gruppe ein Array -- hier ist Sortierung egal, weil
         # unten ohnehin nach Anzahl sortiert wird.
         if $count == "1" then
-          [inputs | hit] | group_by(.sid)
+          [inputs | hit] as $allhits
+          | ($allhits | map(select(.hidden))) as $hid
+          | ([$allhits[] | select(.hidden | not)]) | group_by(.sid)
           | map({sid: .[0].sid, cwd: .[0].cwd, n: length, last: (map(.ts) | max)})
           | sort_by(-.n)
           | (.[] | ($tmap[0][.sid] // null) as $title
@@ -946,7 +969,10 @@ claudegrep() {
              | "\($c_ts)\(.n | tostring | (" " * (5 - length)) + .)\($c_off) \($c_dim)\($d)\($c_off) "
                + (if $title then "\($c_loc)\($title)\($c_off) \($c_dim)(\(.cwd) · \(.sid[0:8]) · \(.sid))\($c_off)"
                   else "\($c_loc)\(.cwd)\($c_off) \($c_dim)(\(.sid[0:8]) · \(.sid))\($c_off)" end)),
-            "\($c_dim)── \(map(.n) | add // 0) Treffer in \(length) Sessions ──\($c_off)"
+            "\($c_dim)── \(map(.n) | add // 0) Treffer in \(length) Sessions ──\($c_off)",
+            (if ($hid | length) > 0
+             then "\($c_dim)(+\($hid | length) Treffer nur in eingefügten Blöcken -- --pasted zählt sie mit)\($c_off)"
+             else empty end)
         else
         foreach (inputs | hit) as $r
           ( {prev: null, prevdate: null};
@@ -1126,6 +1152,9 @@ claudegrep() {
             # foreach/EXTRACT ausgibt, ohnehin automatisch einen Zeilenumbruch
             # an -- ein zusätzliches "\n" in diesem String hätte pro Treffer
             # eine Leerzeile erzeugt.
+            | (if $r.hidden
+               then "\($c_dim)⎘ nur in eingefügtem Block (--pasted zeigt den Ausschnitt)\($c_off)"
+               else $bodytext end) as $bodytext
             | "\($header)\($datehdr)  \($c_ts)\($tsplain)\($c_off) \($c_role)\($roleabbr)\($c_off): \($bodytext)"
           )
         end
