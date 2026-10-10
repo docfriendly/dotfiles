@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Aktuelles tmux-Fenster per fzf in eine andere Session verschieben.
+# Ersatz fuer das Standard-Prefix+. (move-window, tippt den Zielnamen von Hand).
+#
+# Eingebunden via:
+#   bind . display-popup -E -w 40% -h 40% -T 'Fenster verschieben' \
+#     "$HOME/.local/bin/tmux-move-window-fzf '#{window_id}'"
+#
+# $1 ist die window_id (@N), die tmux beim Tastendruck expandiert -- im Popup
+# selbst waere der Kontext ein anderer (siehe tmux-config-popup/ im Vault).
+#
+# fzf listet die vorhandenen Sessions (ohne die des Fensters selbst). Wird ein
+# Name getippt, der es nicht gibt, legt das Script die Session neu an. Das
+# Fenster haengt am naechsten freien Index; Esc/leere Eingabe bricht ab.
+
+set -euo pipefail
+
+src=${1:?window_id fehlt}
+cur=$(tmux display -p -t "$src" '#{session_name}')
+
+out=$(tmux list-sessions -F '#{session_name}' \
+  | grep -vxF -- "$cur" \
+  | fzf --prompt='Fenster nach > ' --reverse --print-query --height=100% \
+  ) || rc=$?
+
+# --print-query: erste Zeile = getippter Text, zweite = gewaehlter Treffer.
+# Exit 1 = kein Treffer (getippter Name wird dann als neue Session genutzt),
+# Exit 130 = Esc.
+[ "${rc:-0}" -eq 130 ] && exit 0
+sel=$(printf '%s\n' "$out" | sed -n '2p')
+[ -n "$sel" ] || sel=$(printf '%s\n' "$out" | sed -n '1p')
+[ -n "$sel" ] || exit 0
+
+tmux has-session -t "=$sel" 2>/dev/null || tmux new-session -d -s "$sel"
+tmux move-window -s "$src" -t "$sel:"
