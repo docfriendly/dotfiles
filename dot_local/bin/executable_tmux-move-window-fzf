@@ -3,7 +3,7 @@
 # Ersatz fuer das Standard-Prefix+. (move-window, tippt den Zielnamen von Hand).
 #
 # Eingebunden via:
-#   bind . display-popup -E -w 40% -h 40% -T 'Fenster verschieben' \
+#   bind . display-popup -E -w 40% -h 12 -y 12 -T 'Fenster verschieben' \
 #     "$HOME/.local/bin/tmux-move-window-fzf '#{window_id}'"
 #
 # $1 ist die window_id (@N), die tmux beim Tastendruck expandiert -- im Popup

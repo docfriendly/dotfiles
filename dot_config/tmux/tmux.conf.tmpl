@@ -103,8 +103,9 @@ bind G run-shell -b '{{ .chezmoi.homeDir }}/.local/bin/tmux-cd-buffer-dir'
 # (statt move-window mit Tippen des Zielnamens). Neuer Name -> neue Session.
 # Die Logik steht im Script, nicht hier: tmux expandiert $VAR in Config-Strings
 # selbst. #{window_id} wird beim Tastendruck expandiert, im Popup waere der
-# Kontext ein anderer.
-bind . display-popup -E -w 40% -h 40% -T 'Fenster verschieben' "{{ .chezmoi.homeDir }}/.local/bin/tmux-move-window-fzf '#{window_id}'"
+# Kontext ein anderer. -y ist die UNTERkante des Popups: 12 Zeilen hoch,
+# Unterkante auf Zeile 12 -> Popup sitzt oben, die iOS-Tastatur verdeckt es nicht.
+bind . display-popup -E -w 40% -h 12 -y 12 -T 'Fenster verschieben' "{{ .chezmoi.homeDir }}/.local/bin/tmux-move-window-fzf '#{window_id}'"
 
 # Restart processes with resurrect-plugin
 # Maschinen-/kundenspezifische Ziele (IPs, Hostnames) gehoeren NICHT in
