@@ -123,6 +123,11 @@ set -g @resurrect-processes '{{ $resurrectProcesses }}'
 
 # Auto-Save/-Restore per continuum-plugin (Session-Daten bleiben lokal pro Maschine)
 set -g @continuum-restore 'on'
+# Save-Intervall in Minuten (Standard 15). resurrect legt nur dann eine neue
+# Datei an, wenn sie sich von `last` unterscheidet (files_differ in save.sh);
+# Backups aelter als 7 Tage (Standard 30) werden dabei mitgeloescht.
+set -g @continuum-save-interval '5'
+set -g @resurrect-delete-backup-after '7'
 
 # Nach jedem Restore (auch dem automatischen per continuum): fuer Panes mit
 # noch sichtbarem altem Claude-Code-Fenstertitel automatisch den passenden
