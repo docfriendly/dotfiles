@@ -100,12 +100,16 @@ set -g @fingers-main-action '{{ .chezmoi.homeDir }}/.local/bin/osc52-copy'
 bind G run-shell -b '{{ .chezmoi.homeDir }}/.local/bin/tmux-cd-buffer-dir'
 
 # Prefix + .: aktuelles Fenster per fzf-Popup in eine andere Session verschieben
-# (statt move-window mit Tippen des Zielnamens). Neuer Name -> neue Session.
-# Die Logik steht im Script, nicht hier: tmux expandiert $VAR in Config-Strings
-# selbst. #{window_id} wird beim Tastendruck expandiert, im Popup waere der
-# Kontext ein anderer. -y ist die UNTERkante des Popups: 12 Zeilen hoch,
-# Unterkante auf Zeile 12 -> Popup sitzt oben, die iOS-Tastatur verdeckt es nicht.
-bind . display-popup -E -w 40% -h 12 -y 12 -T 'Fenster verschieben' "{{ .chezmoi.homeDir }}/.local/bin/tmux-move-window-fzf '#{window_id}' '#{client_name}'"
+# (statt move-window mit Tippen des Zielnamens). Neuer Name -> neue Session,
+# danach springt der Client in die Zielsession. Logik im Script, nicht hier:
+# tmux expandiert $VAR in Config-Strings selbst.
+# Warum run-shell + verschachteltes display-popup: display-popup expandiert
+# Formate NUR im Titel (-T), nicht im Shell-Kommando -- '#{window_id}' kaeme
+# woertlich im Script an (Popup schliesst lautlos). run-shell expandiert sie.
+# -c '#{client_name}' noetig, weil run-shell sonst keinen Client-Kontext hat.
+# -y ist die UNTERkante des Popups: 12 Zeilen hoch, Unterkante auf Zeile 12 ->
+# Popup sitzt oben, die iOS-Tastatur verdeckt es nicht.
+bind . run-shell -b "tmux display-popup -c '#{client_name}' -E -w 40% -h 12 -y 12 -T 'Fenster verschieben' \"{{ .chezmoi.homeDir }}/.local/bin/tmux-move-window-fzf '#{window_id}' '#{client_name}'\""
 
 # Restart processes with resurrect-plugin
 # Maschinen-/kundenspezifische Ziele (IPs, Hostnames) gehoeren NICHT in
