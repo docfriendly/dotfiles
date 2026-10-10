@@ -4,18 +4,22 @@
 #
 # Eingebunden via:
 #   bind . display-popup -E -w 40% -h 12 -y 12 -T 'Fenster verschieben' \
-#     "$HOME/.local/bin/tmux-move-window-fzf '#{window_id}'"
+#     "$HOME/.local/bin/tmux-move-window-fzf '#{window_id}' '#{client_name}'"
 #
-# $1 ist die window_id (@N), die tmux beim Tastendruck expandiert -- im Popup
-# selbst waere der Kontext ein anderer (siehe tmux-config-popup/ im Vault).
+# $1 ist die window_id (@N), $2 der Client-Name (/dev/pts/N); beide expandiert
+# tmux beim Tastendruck -- im Popup selbst waere der Kontext ein anderer (siehe
+# tmux-config-popup/ im Vault). Der Client wird gebraucht, weil switch-client
+# im Popup sonst irgendeinen "letzten" Client trifft (mehrere Clients moeglich).
 #
 # fzf listet die vorhandenen Sessions (ohne die des Fensters selbst). Wird ein
 # Name getippt, der es nicht gibt, legt das Script die Session neu an. Das
 # Fenster haengt am naechsten freien Index; Esc/leere Eingabe bricht ab.
+# Danach springt der Client in die Zielsession auf das verschobene Fenster.
 
 set -euo pipefail
 
 src=${1:?window_id fehlt}
+client=${2:-}
 cur=$(tmux display -p -t "$src" '#{session_name}')
 
 out=$(tmux list-sessions -F '#{session_name}' \
@@ -33,3 +37,5 @@ sel=$(printf '%s\n' "$out" | sed -n '2p')
 
 tmux has-session -t "=$sel" 2>/dev/null || tmux new-session -d -s "$sel"
 tmux move-window -s "$src" -t "$sel:"
+tmux select-window -t "$src"
+tmux switch-client ${client:+-c "$client"} -t "=$sel"
