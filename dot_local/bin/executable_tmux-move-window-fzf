@@ -14,6 +14,8 @@
 # fzf listet die vorhandenen Sessions (ohne die des Fensters selbst). Wird ein
 # Name getippt, der es nicht gibt, legt das Script die Session neu an. Das
 # Fenster haengt am naechsten freien Index; Esc/leere Eingabe bricht ab.
+# Neu angelegte Sessions bringen ein leeres Start-Fenster mit; das wird nach
+# dem Verschieben entfernt und die Indizes neu durchnummeriert.
 # Danach springt der Client in die Zielsession auf das verschobene Fenster.
 
 set -euo pipefail
@@ -35,7 +37,14 @@ sel=$(printf '%s\n' "$out" | sed -n '2p')
 [ -n "$sel" ] || sel=$(printf '%s\n' "$out" | sed -n '1p')
 [ -n "$sel" ] || exit 0
 
-tmux has-session -t "=$sel" 2>/dev/null || tmux new-session -d -s "$sel"
+placeholder=
+if ! tmux has-session -t "=$sel" 2>/dev/null; then
+  placeholder=$(tmux new-session -d -s "$sel" -P -F '#{window_id}')
+fi
 tmux move-window -s "$src" -t "$sel:"
+if [ -n "$placeholder" ]; then
+  tmux kill-window -t "$placeholder"
+  tmux move-window -r -t "=$sel:"
+fi
 tmux select-window -t "$src"
 tmux switch-client ${client:+-c "$client"} -t "=$sel"
