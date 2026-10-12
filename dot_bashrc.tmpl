@@ -213,23 +213,32 @@ PROMPT_COMMAND="_track_sudo_use${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
 # "." (explizit in starship.toml gesetzt), nur dieses wird abgeschnitten.
 # ══════════════════════════════════════════════════════════════════
 export _STARSHIP_NARROW_MARK=$'\uE000'
+# Escape-Klammern \[...\] per Schleife entfernen (ein extglob-Pattern wie
+# *([!\\]) braucht auf langen Prompts ~12 ms pro Aufruf, die Schleife ~0,2 ms).
+_starship_strip_esc() {
+  _SL_PLAIN=$1
+  while [[ $_SL_PLAIN == *'\['*'\]'* ]]; do
+    _SL_PLAIN=${_SL_PLAIN%%'\['*}${_SL_PLAIN#*'\]'}
+  done
+}
 _starship_narrow_split() {
   local m=$_STARSHIP_NARROW_MARK
   [[ $PS1 == *"$m"* ]] || return 0
-  shopt -q extglob && local _ext=1 || shopt -s extglob
   local left=${PS1%%"$m"*} rest=${PS1#*"$m"}
   local line=${rest%%$'\n'*}
-  local pl=${left##*$'\n'} pr=$line
-  pl=${pl//\\\[*([!\\])\\\]/}
-  pr=${pr//\\\[*([!\\])\\\]/}
+  _starship_strip_esc "${left##*$'\n'}"; local pl=$_SL_PLAIN
+  _starship_strip_esc "$line"; local pr=$_SL_PLAIN
   local right=${pr#"${pr%%[!.]*}"}
   if [[ -n $right ]] && (( ${#pl} + ${#right} + ${STARSHIP_NARROW_MARGIN:-3} > ${COLUMNS:-80} )); then
-    [[ $pr == .* ]] && rest=${rest/+(.)/}
+    if [[ $pr == .* ]]; then
+      # erste Punkte-Folge (Fuellung) aus dem Roh-String schneiden
+      local pre=${rest%%.*} tail=${rest#*.}
+      rest=$pre${tail#"${tail%%[!.]*}"}
+    fi
     PS1=$left$'\n'$rest
   else
     PS1=$left$rest
   fi
-  [[ -n $_ext ]] || shopt -u extglob
 }
 PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}_starship_narrow_split"
 
