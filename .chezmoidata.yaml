@@ -22,6 +22,7 @@ machines:
       # dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'btop "syncthing --no-browser"'
   ihht:
+    wireguard: true # resolvconf + NM rc-manager, siehe run_once_after_48-configure-wireguard-dns.sh.tmpl
     tmux:
       statusBg: "colour141 #flieder"
       # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT

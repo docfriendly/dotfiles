@@ -567,6 +567,40 @@ nächsten `chezmoi apply` erneut – nach dem Fix reicht
   `markdownlint-cli2`): nvim beendet sich, bevor Mason fertig ist. Beim
   ersten interaktiven `nvim`-Start installiert Mason nach.
 
+## WireGuard auf den Hosts
+
+`wg-quick` und `wireguard-tools` kommen auf jedem Host aus dem Brewfile
+(Linuxbrew), nicht aus apt. Die Peer-Datei `/etc/wireguard/<host>-praxmon.conf`
+enthält den Private Key und liegt **nicht** im Repo (öffentlicher Mirror). Sie
+kann auch nicht aus dem Syncthing-Vault kommen, weil der Vault den Tunnel
+braucht – der erste Peer-Eintrag je Host ist deshalb Handarbeit:
+
+```bash
+scp <host>-praxmon.conf <user>@<host>:~/           # /etc/wireguard gehört root
+sudo install -m 600 -o root -g root ~/<host>-praxmon.conf /etc/wireguard/
+shred -u ~/<host>-praxmon.conf
+sudo /home/linuxbrew/.linuxbrew/bin/wg-quick up <host>-praxmon   # voller Pfad: sudo kennt den Linuxbrew-PATH nicht
+sudo wg show                                        # Handshake prüfen
+```
+
+- **Autostart** gibt es nicht (weder systemd-Unit noch `init.d`); der Tunnel
+  wird von Hand gestartet.
+- **`AllowedIPs`**: wg-easy liefert `0.0.0.0/0, ::/0` (Vollverkehr). Für
+  Hosts, die nur das VPN-Subnetz brauchen (Kiosk), auf dieses Subnetz
+  einschränken, sonst läuft der gesamte Verkehr durch den Tunnel.
+- **Dateirechte** `600 root:root`; `wg-quick` warnt bei world-readable.
+- **`DNS =` in der Peer-Datei** braucht `resolvconf` (ruft `wg-quick` auf).
+  Auf Hosts mit NetworkManager ersetzt `resolvconf` jedoch
+  `/etc/resolv.conf` durch einen Symlink auf eine leere Datei – ohne
+  Namensauflösung. Deshalb legt `run_once_after_48-configure-wireguard-dns`
+  zusätzlich `/etc/NetworkManager/conf.d/rc-manager.conf` mit
+  `rc-manager=resolvconf` an, damit NM seine Server dort anmeldet. Das
+  Skript läuft nur auf Hosts mit `machines.<host>.wireguard: true` in
+  `.chezmoidata.yaml`. Ohne `DNS =` (Split-Tunnel, DNS aus NetworkManager)
+  braucht man weder `resolvconf` noch das Skript.
+- Auf einem Host ohne `resolvconf`, bei dem es versehentlich installiert
+  wurde: `sudo apt purge resolvconf && sudo nmcli general reload dns-rc`.
+
 ## Maschinenspezifische Werte
 
 `.chezmoi.toml.tmpl` fragt bei `chezmoi init` interaktiv nach Git-`name`

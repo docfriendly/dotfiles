@@ -1,0 +1,56 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname }}
+{{ if and (ne .chezmoi.os "darwin") (index $machine "wireguard") -}}
+# ══════════════════════════════════════════════════════════════════
+# WIREGUARD-DNS (nur Hosts mit machines.<host>.wireguard: true)
+# Damit `DNS =` in der Peer-Datei funktioniert (wg-quick ruft dafuer
+# `resolvconf -a <iface>` auf), muss resolvconf da sein. wg-quick und
+# wireguard-tools selbst kommen aus dem Brewfile (Linuxbrew), NICHT aus
+# apt - hier also bewusst kein wireguard-tools.
+#
+# Fallstrick: resolvconf ersetzt /etc/resolv.conf durch einen Symlink auf
+# /run/resolvconf/resolv.conf. Meldet NetworkManager seine Server dort
+# nicht an, steht nur der Tunnel-DNS drin und ohne Tunnel gar nichts
+# (ihht, 09.10.2026: keine Namensaufloesung direkt nach der Installation).
+# Deshalb NM per rc-manager=resolvconf ausdruecklich anweisen, seine
+# DNS-Server bei resolvconf anzumelden, statt sich auf die Erkennung
+# ("auto") zu verlassen.
+#
+# Nur Hosts mit Flag: x220 kommt ohne resolvconf aus (NM schreibt
+# resolv.conf selbst, keine DNS=-Zeile in der Peer-Datei), x230 hat
+# WireGuard per apt - dort nichts anfassen.
+#
+# Die Peer-Datei /etc/wireguard/<host>-praxmon.conf enthaelt den Private
+# Key und liegt NICHT im Repo (oeffentlicher Mirror). Einspielen von
+# Hand: scp nach ~, dann
+#   sudo install -m 600 -o root -g root ~/<datei>.conf /etc/wireguard/
+#   shred -u ~/<datei>.conf
+# Tunnel mit vollem Pfad starten (sudo kennt den Linuxbrew-PATH nicht):
+#   sudo /home/linuxbrew/.linuxbrew/bin/wg-quick up <host>-praxmon
+# ══════════════════════════════════════════════════════════════════
+
+NM_CONF="/etc/NetworkManager/conf.d/rc-manager.conf"
+NM_CONF_CONTENT=$'[main]\nrc-manager=resolvconf\n'
+
+if dpkg -s resolvconf >/dev/null 2>&1; then
+  echo "==> resolvconf bereits installiert, überspringe."
+else
+  echo "==> Installiere resolvconf..."
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y resolvconf
+fi
+
+if [ -f "$NM_CONF" ] && [ "$(cat "$NM_CONF")" = "${NM_CONF_CONTENT%$'\n'}" ]; then
+  echo "==> $NM_CONF bereits gesetzt, überspringe."
+else
+  echo "==> Schreibe $NM_CONF..."
+  printf '%s' "$NM_CONF_CONTENT" | sudo tee "$NM_CONF" >/dev/null
+fi
+
+# Neu einlesen, damit /etc/resolv.conf nicht leer bleibt (kein Restart,
+# SSH-Sitzungen bleiben bestehen)
+if command -v nmcli >/dev/null 2>&1; then
+  sudo nmcli general reload conf dns-rc
+fi
+{{ end -}}
