@@ -230,10 +230,20 @@ _starship_narrow_split() {
   _starship_strip_esc "$line"; local pr=$_SL_PLAIN
   local right=${pr#"${pr%%[!.]*}"}
   if [[ -n $right ]] && (( ${#pl} + ${#right} + ${STARSHIP_NARROW_MARGIN:-3} > ${COLUMNS:-80} )); then
+    # Rechte Zeile buendig rechts: Punkte-Fuellung auf COLUMNS - Breite(rechts) - 1
+    # neu aufbauen (die 1 Spalte Reserve verhindert Umbruch am Zeilenrand).
+    # Emoji zaehlen doppelt (bekannte aus ssh_no_keys/sudo_cache).
+    local w=${#right} wt=${right//[🔓🚫]/} n d=
+    w=$(( 2 * w - ${#wt} ))
+    n=$(( ${COLUMNS:-80} - w - 1 ))
+    (( n > 0 )) && { printf -v d '%*s' "$n" ''; d=${d//' '/.}; }
     if [[ $pr == .* ]]; then
-      # erste Punkte-Folge (Fuellung) aus dem Roh-String schneiden
+      # erste Punkte-Folge (Fuellung, behaelt ihren Stil) im Roh-String ersetzen
       local pre=${rest%%.*} tail=${rest#*.}
-      rest=$pre${tail#"${tail%%[!.]*}"}
+      rest=$pre$d${tail#"${tail%%[!.]*}"}
+    else
+      # keine Fuellung vorhanden (links+rechts >= Breite): Stil wie $fill (bold black)
+      rest='\[\e[1;30m\]'$d'\[\e[0m\]'$rest
     fi
     PS1=$left$'\n'$rest
   else
