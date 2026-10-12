@@ -201,6 +201,39 @@ export PATH="$HOME/.local/bin:$PATH"
 PROMPT_COMMAND="_track_sudo_use${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
 
 # ══════════════════════════════════════════════════════════════════
+# STARSHIP: LINKS/RECHTS UNTEREINANDER BEI SCHMALEM TERMINAL
+# starship kennt kein "right_format" für bash; die erste Zeile ist
+# links + $fill + rechts. Passt beides nicht in $COLUMNS, würde der
+# rechte Teil mitten im Text umbrechen. Der env_var-Marker vor $fill
+# (siehe starship.toml) erlaubt, PS1 nachträglich aufzuteilen: zu
+# schmal -> rechter Teil in eigene Zeile, sonst Marker nur entfernen.
+# Läuft als letzter PROMPT_COMMAND-Eintrag, also nach starship_precmd.
+# Breite = Zeichenzahl (${#}); Emoji zählen real doppelt, daher Reserve
+# STARSHIP_NARROW_MARGIN (1 Lücke + 2 Puffer). Füllzeichen von $fill ist
+# "." (explizit in starship.toml gesetzt), nur dieses wird abgeschnitten.
+# ══════════════════════════════════════════════════════════════════
+export _STARSHIP_NARROW_MARK=$'\uE000'
+_starship_narrow_split() {
+  local m=$_STARSHIP_NARROW_MARK
+  [[ $PS1 == *"$m"* ]] || return 0
+  shopt -q extglob && local _ext=1 || shopt -s extglob
+  local left=${PS1%%"$m"*} rest=${PS1#*"$m"}
+  local line=${rest%%$'\n'*}
+  local pl=${left##*$'\n'} pr=$line
+  pl=${pl//\\\[*([!\\])\\\]/}
+  pr=${pr//\\\[*([!\\])\\\]/}
+  local right=${pr#"${pr%%[!.]*}"}
+  if [[ -n $right ]] && (( ${#pl} + ${#right} + ${STARSHIP_NARROW_MARGIN:-3} > ${COLUMNS:-80} )); then
+    [[ $pr == .* ]] && rest=${rest/+(.)/}
+    PS1=$left$'\n'$rest
+  else
+    PS1=$left$rest
+  fi
+  [[ -n $_ext ]] || shopt -u extglob
+}
+PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}_starship_narrow_split"
+
+# ══════════════════════════════════════════════════════════════════
 # TERMIUS-ENV-FIX (IPHONE_CLIENT)
 # ══════════════════════════════════════════════════════════════════
 # Termius' "Environment Variables"-Feature schickt den Namen/Wert mit

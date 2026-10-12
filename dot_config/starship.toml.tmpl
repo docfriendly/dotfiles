@@ -18,9 +18,22 @@ mit leerer/kaputter Adresse zu rendern.
 
 format = """\
 ${custom.privgroups}${custom.sudo_cache}$all\
-${custom.db_migrate}{{ if $registryLocation }}${custom.podman_login}{{ end }}$fill$ruby$custom\
+${custom.db_migrate}{{ if $registryLocation }}${custom.podman_login}{{ end }}${env_var.narrow_mark}$fill$ruby$custom\
 $line_break\
 ${custom.shlvl}$jobs$character"""
+
+# Marker direkt vor $fill: bashrc (_starship_narrow_split) schneidet die erste
+# Zeile hier auf und setzt "rechts" untereinander, wenn links+rechts nicht in
+# die Breite passen. Forkfrei (env_var statt custom); ohne gesetzte Variable
+# rendert das Modul nichts.
+[env_var.narrow_mark]
+variable = "_STARSHIP_NARROW_MARK"
+format = "$env_value"
+
+# Default-Symbol ausdruecklich gesetzt: _starship_narrow_split verlaesst sich
+# darauf, dass die Fuellung nur aus "." besteht.
+[fill]
+symbol = "."
 
 [directory]
 truncation_length = 4
