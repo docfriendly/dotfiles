@@ -1,6 +1,8 @@
 #!/bin/bash
-# Picture-in-Picture: Prefix+P zeigt/versteckt ein Popup mit einem read-only
-# Live-Blick auf ein ANDERES tmux-Fenster. Details/Bau-Protokoll:
+# Picture-in-Picture: Prefix+P zeigt/versteckt ein Popup mit einem Live-Blick
+# auf ein ANDERES tmux-Fenster. Tasten im Popup gehen direkt ans Zielfenster
+# (kein Read-only-Modus mehr; fruehere Prefix+u-Sperre wurde am 12.10.2026
+# abgeschafft, siehe Popup-Keymap in tmux.conf). Details/Bau-Protokoll:
 # ~/Sync/vault/SECOND_BRAIN/tmux-config-popup/BERICHT_tmux-config-popup.md
 #
 # Zielfenster-Ermittlung (in dieser Reihenfolge):
@@ -10,18 +12,18 @@
 #
 # Aufruf ohne Argumente = normaler Toggle (Prefix+P).
 # Aufruf mit --remember <cur_win> <chosen_win> = interner Callback des Pickers.
+# Aufruf mit --zoom-toggle = interner Callback von Prefix+Z im Popup (kippt
+#   zwischen 50x60% und Vollbild, siehe Schleife in show_popup).
 # Aufruf mit --unlink = Verknuepfung des aktuellen Fensters bewusst loesen (Prefix+Alt+P).
 #   Setzt @pip_target auf den Sentinel-Wert "$UNLINKED", damit Stufe 2
 #   (Namenskonvention) beim naechsten Prefix+P NICHT automatisch wieder
 #   verknuepft -- sonst wuerde ein gleichnamiges SSH-Fenster die Trennung
 #   sofort rueckgaengig machen, noch bevor der Picker drankommt.
 #
-# Read/Write innerhalb des Popups: Prefix+u ist NICHT hier implementiert,
-# sondern direkt in tmux.conf an "switch-client -r" gebunden -- ein
-# run-shell-Wrapper (auch mit korrekter interner Logik) wird von einem
-# read-only-Client kategorisch abgelehnt ("Client is read only"), nur an
-# detach-client/switch-client gebundene Tasten funktionieren dort (man tmux,
-# Abschnitt attach-session). Siehe BERICHT fuer die volle Herleitung.
+# Im Popup (Keymap Tabellen pip/pip_prefix in tmux.conf):
+#   Prefix+Z  zwischen 50x60% und Vollbild wechseln (--zoom-toggle)
+#   Prefix+P  Popup schliessen (Toggle), Prefix+d ebenso
+#   Prefix+[  copy-mode im Zielfenster (Scrollback)
 
 PIP_SESSION=_pip
 UNLINKED="__unlinked__"
@@ -31,38 +33,68 @@ show_popup() {
   local target="$1"
   tmux new-session -d -s "$PIP_SESSION"
   tmux link-window -k -s "$target" -t "$PIP_SESSION:0"
+  # Eigene Key-Table nur fuer den Popup-Client (Bindings: tmux.conf, Tabellen
+  # pip/pip_prefix) -- so wirkt Prefix+Z nur hier und nicht im normalen Fenster.
+  # prefix/prefix2 None: sonst faengt der fest verdrahtete Prefix-Mechanismus
+  # (globale Prefix-Table) die Taste ab, bevor die Tabelle "pip" greift.
+  tmux set-option -t "$PIP_SESSION" key-table pip
+  tmux set-option -t "$PIP_SESSION" prefix None
+  tmux set-option -t "$PIP_SESSION" prefix2 None
 
-  # Feste, selbst berechnete Popup-Groesse statt tmux' eigener Prozent-
-  # Berechnung ("-w 50% -h 60%"): das verlinkte Fenster behaelt sonst seine
-  # zuletzt bekannte Groesse aus seiner Heimat-Session (z.B. SSH) bei, auch
-  # wenn die stark von der Popup-Groesse abweicht -- ein frisch angehaengter
-  # Client erzwingt trotz window-size=latest KEIN sofortiges Resize (mehrfach
-  # empirisch geprueft, siehe tmux-config-popup/BERICHT_*.md). Ohne Fix zeigt
-  # das Popup dann nur einen kleinen, oben links verankerten Ausschnitt mit
-  # totem Rand drumherum, statt den Inhalt formatfuellend darzustellen.
-  local client_w client_h popup_w popup_h popup_x
-  client_w="$(tmux display-message -p '#{client_width}')"
-  client_h="$(tmux display-message -p '#{client_height}')"
-  popup_w=$(( client_w * 50 / 100 ))
-  popup_h=$(( client_h * 60 / 100 ))
-  tmux resize-window -t "$PIP_SESSION:0" -x "$popup_w" -y "$popup_h"
-
-  # Read/Write-Statusanzeige: eine einzige farbige Zeile am oberen Rand der
-  # Pane (pane-border-status top), traegt Zustand + beide Kommandos. Der
-  # eigentliche tmux-Statusbalken (unten) bleibt unangetastet.
+  # Hinweiszeile: eine einzige farbige Zeile am oberen Rand der Pane (pane-
+  # border-status top) mit den Popup-Kommandos. Der eigentliche tmux-
+  # Statusbalken (unten) bleibt unangetastet. Das Zoom-Label liest die
+  # globale Option @pip_zoom (siehe Schleife unten).
   tmux set-option -t "$PIP_SESSION" pane-border-status top
   tmux set-option -t "$PIP_SESSION" pane-border-format \
-    "#{?client_readonly,#[bg=colour167#,fg=white] LESEN  |  Prefix+u Schreiben  |  Prefix+d Exit ,#[bg=colour108#,fg=black] SCHREIBEN  |  Prefix+u Lesen  |  Prefix+d Exit }"
+    "#[bg=colour108#,fg=black] PiP  |  Prefix+Z #{?#{==:#{@pip_zoom},1},Verkleinern,Vollbild}  |  Prefix+P/d Exit "
 
-  # -x R (statt einer Zahl) fuer die Popup-Position ist hier absichtlich
-  # NICHT verwendet: sobald pane-border-status auf der Zielsession aktiv ist
-  # (s.o.), berechnet tmux 3.7b die "R"-Position falsch und verankert das
-  # Popup stattdessen links oben (Spalte 1) -- reproduzierbar leer getestet,
-  # verschwindet mit einer explizit berechneten Spaltenzahl. Deshalb hier
-  # der rechte Rand von Hand ausgerechnet statt tmux' eigener "R"-Symbolik.
-  popup_x=$(( client_w - popup_w ))
-  tmux display-popup -w "$popup_w" -h "$popup_h" -x "$popup_x" -y 0 -T "PiP: $target" -E \
-    "tmux attach-session -r -t $PIP_SESSION"
+  # Zoom (Prefix+Z im Popup): ein display-popup laesst sich nach dem Oeffnen
+  # nicht in der Groesse aendern. Deshalb ist Prefix+Z per
+  # "detach-client -E" an --zoom-toggle gebunden: das kippt @pip_zoom,
+  # setzt @pip_zoom_req und beendet damit das Popup. Diese Schleife sieht das
+  # Flag und oeffnet dasselbe Ziel erneut in der anderen Groesse. Prefix+d /
+  # Prefix+P setzen kein Flag -> Schleife endet, PiP ist zu.
+  local client_w client_h popup_w popup_h popup_x pct_w pct_h
+  client_w="$(tmux display-message -p '#{client_width}')"
+  client_h="$(tmux display-message -p '#{client_height}')"
+  tmux set-option -g @pip_zoom 0
+  tmux set-option -gu @pip_zoom_req 2>/dev/null
+
+  while :; do
+    if [ "$(tmux show-options -gqv @pip_zoom)" = 1 ]; then
+      pct_w=100; pct_h=100
+    else
+      pct_w=50;  pct_h=60
+    fi
+
+    # Feste, selbst berechnete Popup-Groesse statt tmux' eigener Prozent-
+    # Berechnung ("-w 50% -h 60%"): das verlinkte Fenster behaelt sonst seine
+    # zuletzt bekannte Groesse aus seiner Heimat-Session (z.B. SSH) bei, auch
+    # wenn die stark von der Popup-Groesse abweicht -- ein frisch angehaengter
+    # Client erzwingt trotz window-size=latest KEIN sofortiges Resize (mehrfach
+    # empirisch geprueft, siehe tmux-config-popup/BERICHT_*.md). Ohne Fix zeigt
+    # das Popup dann nur einen kleinen, oben links verankerten Ausschnitt mit
+    # totem Rand drumherum, statt den Inhalt formatfuellend darzustellen.
+    popup_w=$(( client_w * pct_w / 100 ))
+    popup_h=$(( client_h * pct_h / 100 ))
+    tmux resize-window -t "$PIP_SESSION:0" -x "$popup_w" -y "$popup_h"
+
+    # -x R (statt einer Zahl) fuer die Popup-Position ist hier absichtlich
+    # NICHT verwendet: sobald pane-border-status auf der Zielsession aktiv ist
+    # (s.o.), berechnet tmux 3.7b die "R"-Position falsch und verankert das
+    # Popup stattdessen links oben (Spalte 1) -- reproduzierbar leer getestet,
+    # verschwindet mit einer explizit berechneten Spaltenzahl. Deshalb hier
+    # der rechte Rand von Hand ausgerechnet statt tmux' eigener "R"-Symbolik.
+    popup_x=$(( client_w - popup_w ))
+    tmux display-popup -w "$popup_w" -h "$popup_h" -x "$popup_x" -y 0 -T "PiP: $target" -E \
+      "tmux attach-session -t $PIP_SESSION"
+
+    [ "$(tmux show-options -gqv @pip_zoom_req)" = 1 ] || break
+    tmux set-option -gu @pip_zoom_req
+    # Zwischenzeitlich per Prefix+P geschlossen (Session weg) -> nicht neu oeffnen.
+    tmux has-session -t "$PIP_SESSION" 2>/dev/null || break
+  done
 
   # resize-window setzt window-size als Nebeneffekt IMMER auf "manual" (auch
   # bei -A/-a) -- ohne Rueckbau bliebe das Zielfenster in seiner Heimat-
@@ -89,6 +121,13 @@ if [ "$1" = "--remember" ]; then
   chosen="$3"
   tmux set-option -w -t "$cur_win" @pip_target "$chosen"
   show_popup "$chosen"
+  exit 0
+fi
+
+if [ "$1" = "--zoom-toggle" ]; then
+  if [ "$(tmux show-options -gqv @pip_zoom)" = 1 ]; then new=0; else new=1; fi
+  tmux set-option -g @pip_zoom "$new"
+  tmux set-option -g @pip_zoom_req 1
   exit 0
 fi
 
