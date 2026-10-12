@@ -37,7 +37,8 @@
 # SSH_CONNECTION). PTY-lose Verbindungen (scp, ssh host cmd) haben kein Alter und
 # erscheinen nur in der Zaehlung. Den Mikro-Tunnel (mic-tunnel-aktiv) zieht der
 # erste PTY-lose Socket ab. Nutzer: Starship (custom.ssh_in / custom.ssh_in_warn),
-# sessions --herkunft. Ergebnis wird 5 s gecacht (Starship ruft je Prompt mehrfach).
+# sessions --herkunft. Ergebnis wird 5 s gecacht (Starship ruft je Prompt mehrfach;
+# parallele Aufrufer und Hintergrund-Refresh: siehe cached()).
 WARN_H=${SSH_IN_WARN_H:-8}
 AKTIV_S=${MOSH_AKTIV_S:-120}
 EIN_S=${MOSH_EINGABE_S:-600}
@@ -250,12 +251,41 @@ berechnen() {
     printf '%s\n%s\n' "$([ "$warn" -eq 1 ] && echo warn || echo ok)" "$text"
 }
 
-cached() {
+# cached: Cache max. CACHE_TTL s alt. Starship ruft ok/warn/text je Prompt parallel auf --
+# ohne Sperre rechnet dann jeder Aufrufer selbst (ps/ss/proc, ~200 ms, unter Last mehr).
+# flock auf "$CACHE.lock" sorgt dafuer, dass pro Cache-Art nur EIN Prozess rechnet:
+#   - frisch                    -> sofort lesen (~10 ms)
+#   - veraltet (< STALE_MAX s)  -> alten Wert SOFORT ausliefern, Neuberechnung im
+#                                  Hintergrund (flock -n: laeuft schon eine, passiert nichts)
+#   - kein/sehr alter Cache     -> synchron rechnen, parallele Aufrufer warten auf die
+#                                  Sperre und lesen danach den frischen Wert
+# Der Hintergrundjob haengt stdin/stdout/stderr ab: sonst wartet Starship auf das
+# Pipe-Ende und laeuft ins command_timeout.
+CACHE_TTL=5
+STALE_MAX=30
+
+cache_alter() {
     local t
     t=$(stat -c %Y "$CACHE" 2>/dev/null || echo 0)
-    if [ $(( $(date +%s) - t )) -ge 5 ]; then
-        berechnen >"$CACHE.$$" && mv -f "$CACHE.$$" "$CACHE"
+    echo $(( $(date +%s) - t ))
+}
+
+cache_auffrischen() {
+    # Aufruf unter Sperre (fd 9); nach dem Warten kann ein anderer Prozess schon fertig sein
+    [ "$(cache_alter)" -ge "$CACHE_TTL" ] || return 0
+    berechnen >"$CACHE.$$" && mv -f "$CACHE.$$" "$CACHE"
+    rm -f "$CACHE.$$"
+}
+
+cached() {
+    local alter
+    alter=$(cache_alter)
+    [ "$alter" -lt "$CACHE_TTL" ] && return 0
+    if [ -s "$CACHE" ] && [ "$alter" -lt "$STALE_MAX" ]; then
+        ( flock -n 9 || exit 0; cache_auffrischen ) 9>"$CACHE.lock" </dev/null >/dev/null 2>&1 &
+        return 0
     fi
+    ( flock -w 3 9; cache_auffrischen ) 9>"$CACHE.lock"
 }
 
 case "$1" in

@@ -16,11 +16,6 @@ mit leerer/kaputter Adresse zu rendern.
 {{- end -}}
 "$schema" = 'https://starship.rs/config-schema.json'
 
-# Default 500 ms reicht nicht: ssh-in-status braucht bei Cache-Miss (alle 5 s)
-# ~200 ms, und ssh/mosh ok/warn laufen parallel (Cache-Stampede, je ein eigener
-# ps/ss-Durchlauf) -> unter Last >500 ms und "timed out"-WARN im Prompt.
-command_timeout = 1000
-
 format = """\
 ${custom.privgroups}${custom.sudo_cache}$all\
 ${custom.db_migrate}{{ if $registryLocation }}${custom.podman_login}{{ end }}$fill$ruby$custom\
