@@ -44,6 +44,12 @@ if [ "$(tmux show-environment IPHONE_CLIENT 2>/dev/null)" = "IPHONE_CLIENT=true"
   _marker_w=2
   _flags_w=2
   _name_trunc=7
+  # Zoom-Marker hier 1 Zelle ("⌕" U+2315) statt 🔍 (2 Zellen): ▶ + 🔍 = 3 sprengten
+  # die 2 Zellen des Marker-Bereichs, Zeile 1 war dann 1 Zelle breiter als
+  # Zeile 2 und "┐" sass versetzt zu "┘" (Fund 14.10.2026, iPhone, gezoomtes
+  # Fenster mit PiP-Zuordnung; im isolierten tmux mit #{w:} nachgemessen:
+  # 11 vs 10). Breiter machen waere zu teuer (76 Spalten).
+  _zoom_sym="⌕"
   _scroll_speed=1
 else
   _iphone=false
@@ -70,6 +76,7 @@ else
   _marker_w=3
   _flags_w=3
   _name_trunc=13
+  _zoom_sym="🔍"
   _scroll_speed=3
 fi
 
@@ -161,7 +168,7 @@ _pip_prefix="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,#[bg=cyan#,fg=
 _num_area_w=$(( _tab_w - _marker_w - _flags_w - 2 ))
 _num_center_m=$(( (_num_area_w + 1) / 2 ))
 _pip_marker="#{?#{==:#{@pip_target},__unlinked__},,#{?@pip_target,▶,}}"
-_zoom_marker="#{?window_zoomed_flag,🔍,}"
+_zoom_marker="#{?window_zoomed_flag,${_zoom_sym},}"
 # 🔗 ist ein Farb-Emoji und nimmt keine fg-Farbe an (auf Flieder/Petrol kaum zu
 # sehen, Wunsch 08.10.2026) -> Nerd-Font-Glyph U+F0C1 (nf-fa-link, 1 Zelle breit,
 # einfarbig), erbt die Textfarbe der Box (schwarz auf Claude-/PiP-Hintergrund).
@@ -221,7 +228,7 @@ _name_no_prefix="#{s/^(claude-|PRE-)//:window_name}"
 _name_short="#{=/${_name_trunc}/…:${_name_no_prefix}}"
 tmux set -g @window-status-format-row2 "${_pip_prefix}${_claude_prefix}└#{p${_tab_w}:${_name_short}}┘#[default]"
 tmux set -g @window-status-current-format-row2 "└#{p${_tab_w}:${_name_short}}┘"
-unset _tab_w _name_trunc _marker_w _flags_w _num_area_w _num_center_m _name_no_prefix _name_short _pip_prefix _pip_marker _flags_marker _claude_prefix _zoom_marker _shared_marker
+unset _zoom_sym _tab_w _name_trunc _marker_w _flags_w _num_area_w _num_center_m _name_no_prefix _name_short _pip_prefix _pip_marker _flags_marker _claude_prefix _zoom_marker _shared_marker
 
 # Session-Name links (status-left) als Zweizeilen-Kasten: oben der Name,
 # unten die Gesamtzahl ALLER tmux-Sessions auf dem Server (nicht die
