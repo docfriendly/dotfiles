@@ -12,6 +12,8 @@
 #
 # Aufruf ohne Argumente = normaler Toggle (Prefix+P).
 # Aufruf mit --remember <cur_win> <chosen_win> = interner Callback des Pickers.
+# Aufruf mit --unlink-popup = Prefix+P im Popup: Ausgangsfenster (@pip_origin)
+#   entkoppeln, Popup schliessen.
 # Aufruf mit --zoom-toggle = interner Callback von Prefix+Z im Popup (kippt
 #   zwischen 50x60% und Vollbild, siehe Schleife in show_popup).
 # Aufruf mit --unlink = Verknuepfung des aktuellen Fensters bewusst loesen (Prefix+Alt+P).
@@ -22,15 +24,49 @@
 #
 # Im Popup (Keymap Tabellen pip/pip_prefix in tmux.conf):
 #   Prefix+Z  zwischen 50x60% und Vollbild wechseln (--zoom-toggle)
-#   Prefix+P  Popup schliessen (Toggle), Prefix+d ebenso
+#   Prefix+P  Zuordnung loesen UND Popup schliessen (--unlink-popup); das
+#             naechste Prefix+P im Ausgangsfenster startet den Picker neu
+#   Prefix+d  Popup nur schliessen, Zuordnung bleibt
 #   Prefix+[  copy-mode im Zielfenster (Scrollback)
+#
+# Gespeicherte Ziele sind Namen ("SSH:server"), keine Indizes: ueberleben
+# Umsortieren und Ersetzen des Fensters. Existiert/eindeutig? -> valid_target;
+# sonst Rueckfall auf Namenskonvention bzw. Picker (auch fuer Alt-Werte wie
+# "=SSH:2." aus dem Picker frueherer Staende).
 
 PIP_SESSION=_pip
 UNLINKED="__unlinked__"
 SCRIPT="$0"
 
+# normalize <target>: Picker liefert "=SSH:2." (Index) -> "Session:Fenstername".
+# Namen mit ":" oder "." sind als tmux-Ziel mehrdeutig -> dann Fenster-ID (@N).
+normalize() {
+  local n id
+  n="$(tmux display-message -p -t "$1" '#{session_name}:#{window_name}' 2>/dev/null)"
+  id="$(tmux display-message -p -t "$1" '#{window_id}' 2>/dev/null)"
+  [ -n "$n" ] || { printf '%s' "$1"; return; }
+  case "${n#*:}" in *[:.]*) printf '%s' "$id" ;; *) printf '%s' "$n" ;; esac
+}
+
+# valid_target <target>: Fenster-ID existiert bzw. "Session:Name" trifft genau
+# EIN Fenster (exakter Name). Alt-Werte mit Index/"="/"." gelten als ungueltig.
+valid_target() {
+  local t="$1" sess name
+  [ -n "$t" ] || return 1
+  case "$t" in
+    @*) tmux display-message -p -t "$t" '#{window_id}' >/dev/null 2>&1; return ;;
+    *:*) ;;
+    *) return 1 ;;
+  esac
+  sess="${t%%:*}"; name="${t#*:}"
+  [ "$(tmux list-windows -t "=$sess" -F '#{window_name}' 2>/dev/null | grep -cxF -- "$name")" -eq 1 ]
+}
+
 show_popup() {
-  local target="$1"
+  local target="$1" origin="$2"
+  # Ausgangsfenster merken, damit Prefix+P im Popup (--unlink-popup) es loesen kann.
+  tmux set-option -g @pip_origin "$origin"
+  tmux set-option -gu @pip_unlinked 2>/dev/null
   tmux new-session -d -s "$PIP_SESSION"
   tmux link-window -k -s "$target" -t "$PIP_SESSION:0"
   # Eigene Key-Table nur fuer den Popup-Client (Bindings: tmux.conf, Tabellen
@@ -47,7 +83,7 @@ show_popup() {
   # globale Option @pip_zoom (siehe Schleife unten).
   tmux set-option -t "$PIP_SESSION" pane-border-status top
   tmux set-option -t "$PIP_SESSION" pane-border-format \
-    "#[bg=colour108#,fg=black] PiP  |  Prefix+Z #{?#{==:#{@pip_zoom},1},Verkleinern,Vollbild}  |  Prefix+P/d Exit "
+    "#[bg=colour108#,fg=black] PiP  |  Prefix+Z #{?#{==:#{@pip_zoom},1},Verkleinern,Vollbild}  |  Prefix+P Zuordnung loesen  |  Prefix+d Exit "
 
   # Zoom (Prefix+Z im Popup): ein display-popup laesst sich nach dem Oeffnen
   # nicht in der Groesse aendern. Deshalb ist Prefix+Z per
@@ -96,6 +132,14 @@ show_popup() {
     tmux has-session -t "$PIP_SESSION" 2>/dev/null || break
   done
 
+  # Per Prefix+P im Popup entkoppelt? Meldung hier, vom aeusseren Skript aus: der
+  # Popup-Client ist beim Ausloesen schon weg.
+  if [ "$(tmux show-options -gqv @pip_unlinked)" = 1 ]; then
+    tmux set-option -gu @pip_unlinked
+    tmux display-message -d 3000 "PiP-Zuordnung geloest -- naechstes Prefix+P startet den Picker"
+  fi
+  tmux set-option -gu @pip_origin 2>/dev/null
+
   # resize-window setzt window-size als Nebeneffekt IMMER auf "manual" (auch
   # bei -A/-a) -- ohne Rueckbau bliebe das Zielfenster in seiner Heimat-
   # Session (z.B. SSH) dauerhaft auf die kleine Popup-Groesse eingefroren.
@@ -118,9 +162,19 @@ show_popup() {
 
 if [ "$1" = "--remember" ]; then
   cur_win="$2"
-  chosen="$3"
+  chosen="$(normalize "$3")"
   tmux set-option -w -t "$cur_win" @pip_target "$chosen"
-  show_popup "$chosen"
+  show_popup "$chosen" "$cur_win"
+  exit 0
+fi
+
+if [ "$1" = "--unlink-popup" ]; then
+  origin="$(tmux show-options -gqv @pip_origin)"
+  if [ -n "$origin" ]; then
+    tmux set-option -w -t "$origin" @pip_target "$UNLINKED"
+    tmux set-option -g @pip_unlinked 1
+  fi
+  tmux kill-session -t "$PIP_SESSION" 2>/dev/null
   exit 0
 fi
 
@@ -146,6 +200,11 @@ fi
 
 CUR_WIN="$(tmux display-message -p '#{session_name}:#{window_index}')"
 TARGET="$(tmux show-options -wv -t "$CUR_WIN" @pip_target 2>/dev/null)"
+# Gespeichertes Ziel weg/mehrdeutig/Alt-Format -> wie "nichts gemerkt" behandeln
+# (Stufe 2, dann Picker). Der Sentinel UNLINKED bleibt unberuehrt.
+if [ -n "$TARGET" ] && [ "$TARGET" != "$UNLINKED" ] && ! valid_target "$TARGET"; then
+  TARGET=""
+fi
 
 # Bewusst getrennt (Prefix+Alt+P) -> Stufe 2 (Namenskonvention) NICHT versuchen,
 # sonst wuerde ein gleichnamiges SSH-Fenster sofort wieder automatisch
@@ -171,4 +230,9 @@ if [ -z "$TARGET" ]; then
   exit 0
 fi
 
-show_popup "$TARGET"
+show_popup "$TARGET" "$CUR_WIN"
+# Exit-Status bewusst 0: wurde das Popup per Prefix+P aus dem Popup heraus
+# geschlossen (kill-session durch die zweite Skriptinstanz), schlaegt das
+# abschliessende kill-session in show_popup fehl -> tmux meldete sonst
+# "...tmux-pip-toggle.sh returned 1".
+exit 0

@@ -171,7 +171,10 @@ bind [ run-shell "F=/tmp/tmux-scrollback.$$; tmux capture-pane -peS - -t #{pane_
 #                 Prefix+P startet den Auswahl-Picker neu)
 #   Prefix+Z      Im Popup: zwischen 50x60% und Vollbild wechseln (Popup wird
 #                 geschlossen und groesser/kleiner neu geoeffnet)
-#   Prefix+P / d  Im Popup: schliessen
+#   Prefix+P      Im Popup: Zuordnung loesen + schliessen (naechstes Prefix+P
+#                 im Ausgangsfenster startet den Picker; das ersetzt das
+#                 schwer tippbare Prefix+Alt+P, das weiter funktioniert)
+#   Prefix+d      Im Popup: nur schliessen, Zuordnung bleibt
 #   Prefix+[      Im Popup: copy-mode (Scrollback des Zielfensters)
 #
 # Popup-Keymap: Die _pip-Session bekommt per Skript key-table "pip" und
@@ -184,7 +187,7 @@ bind M-P run-shell '{{ .chezmoi.homeDir }}/.config/tmux/tmux-pip-toggle.sh --unl
 bind -T pip        C-Space switch-client -T pip_prefix
 bind -T pip_prefix C-Space send-prefix
 bind -T pip_prefix d   detach-client
-bind -T pip_prefix P   run-shell '{{ .chezmoi.homeDir }}/.config/tmux/tmux-pip-toggle.sh'
+bind -T pip_prefix P   run-shell '{{ .chezmoi.homeDir }}/.config/tmux/tmux-pip-toggle.sh --unlink-popup'
 bind -T pip_prefix [   copy-mode
 bind -T pip_prefix Z   detach-client -E "{{ .chezmoi.homeDir }}/.config/tmux/tmux-pip-toggle.sh --zoom-toggle"
 
