@@ -1,5 +1,10 @@
 machines:
   x220:
+    heartbeat: # Absturz-Forensik, Cron per run_onchange_after_53; nur x220 mit Alarm+Hibernate
+      top: true
+      alarm: true
+      hibernate: true
+      log: "Sync/vault/SECOND_BRAIN/x220-forensics-unplanned-restart/x220_heartbeat.log" # relativ zu $HOME
     sysvinit: true # bootet mit sysvinit statt systemd, siehe run_onchange_after_51-install-wlan-monitor-init.sh.tmpl
     tmux:
       statusBg: "colour214 #dark orange"
@@ -8,6 +13,8 @@ machines:
       # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'btop "syncthing --no-browser" "journalctl -f" "gping -n 0.9 1.1.1.1 google.de"'
   x230:
+    heartbeat:
+      top: true
     tmux:
       statusBg: "silver"
       # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
@@ -15,6 +22,8 @@ machines:
       # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'nvim btop "gping -n 0.8 1.1.1.1 google.de" "syncthing --no-browser" "mtr google.de" "./check_connection.sh"'
   t410s:
+    heartbeat:
+      top: true
     tmux:
       statusBg: "colour33"
       # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
@@ -22,6 +31,8 @@ machines:
       # dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'btop "syncthing --no-browser"'
   ihht:
+    heartbeat:
+      top: false # Leicht-Modus bis Kosten gemessen (aelteste Hardware, Centrino 2)
     wireguard: true # resolvconf + NM rc-manager, siehe run_once_after_48-configure-wireguard-dns.sh.tmpl
     tmux:
       statusBg: "colour141 #flieder"

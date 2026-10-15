@@ -1,0 +1,43 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname -}}
+{{- if not $machine -}}
+{{   fail (printf "run_onchange_after_53-install-heartbeat-cron: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
+{{- end }}
+{{- $hb := index $machine "heartbeat" }}
+
+# ════════════════════════════════════════════════════════════════════════
+# HEARTBEAT-CRON (User-Crontab) fuer ~/.local/bin/heartbeat
+# Minuetlicher Absturz-Forensik-Heartbeat. Aktiv nur auf Hosts mit
+# machines.<host>.heartbeat in .chezmoidata.yaml (Schluessel: top, alarm,
+# hibernate, log). Die Zeile traegt die Markierung "# heartbeat-managed"; sie und
+# die alte, von Hand angelegte x220-Zeile werden ersetzt, alles andere in der
+# Crontab bleibt unberuehrt. run_onchange: laeuft erneut, sobald sich die
+# gerenderte Zeile (also die Daten) aendert. Siehe
+# SECOND_BRAIN/x220-forensics-unplanned-restart/BERICHT.md (Vorfall 8).
+# ════════════════════════════════════════════════════════════════════════
+
+if ! command -v crontab >/dev/null 2>&1; then
+  echo "heartbeat-cron: crontab nicht vorhanden (cron nicht installiert) - uebersprungen" >&2
+  exit 0
+fi
+
+MARK='# heartbeat-managed'
+CUR="$(crontab -l 2>/dev/null || true)"
+NEW="$(printf '%s\n' "$CUR" | grep -v -e "$MARK" -e 'x220_heartbeat.sh' -e '^# Absturz-Forensik: Minuten-Heartbeat' || true)"
+
+{{ if $hb -}}
+{{- $top := true }}{{ if hasKey $hb "top" }}{{ $top = index $hb "top" }}{{ end -}}
+LINE='* * * * * HB_TOP={{ if $top }}1{{ else }}0{{ end }}{{ if and (hasKey $hb "alarm") (index $hb "alarm") }} HB_ALARM=1{{ end }}{{ if and (hasKey $hb "hibernate") (index $hb "hibernate") }} HB_HIBERNATE=1{{ end }}{{ if hasKey $hb "log" }} LOG={{ .chezmoi.homeDir }}/{{ index $hb "log" }}{{ end }} {{ .chezmoi.homeDir }}/.local/bin/heartbeat '"$MARK"
+NEW="$(printf '%s\n%s\n' "$NEW" "$LINE")"
+{{- else -}}
+# Auf diesem Host ist kein Heartbeat vorgesehen: nur eine evtl. vorhandene Zeile entfernen.
+{{- end }}
+
+if [ "$NEW" != "$CUR" ]; then
+  mkdir -p "$HOME/.cache"
+  printf '%s\n' "$CUR" > "$HOME/.cache/crontab.bak.$(date +%s)"
+  printf '%s\n' "$NEW" | crontab -
+  echo "heartbeat-cron: Crontab aktualisiert (Sicherung in ~/.cache/crontab.bak.*)"
+fi

@@ -3,3 +3,6 @@
 
 # Nach Umzug auf XDG-Pfad ~/.config/tmux/tmux.conf entfernen (tmux >= 3.1)
 .tmux.conf
+
+# Heartbeat 15.10.2026 umbenannt (x220_heartbeat.sh -> heartbeat)
+.local/bin/x220_heartbeat.sh
