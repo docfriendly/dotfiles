@@ -3,35 +3,75 @@ set -eufo pipefail
 
 {{ if ne .chezmoi.os "darwin" -}}
 # ══════════════════════════════════════════════════════════════════
-# NOMACHINE (nur Linux - macOS läuft über den Cask im Brewfile)
-# Kein apt/nala-Paket verfügbar, NoMachine vertreibt nur direkte
-# .deb-Downloads. Es gibt keine stabile "latest"-URL (Version und
-# Mirror-Host stehen fest drin) - Version daher hier gepinnt statt
-# zur Laufzeit von der Download-Seite gescraped.
-# URL steht in .chezmoidata.yaml (downloads.nomachine).
+# NOMACHINE 9 (nur Linux - macOS läuft über den Cask im Brewfile)
+# NoMachine 10 (seit 30.07.2026) hat den kostenlosen Server abgeschafft:
+# Die Personal Edition braucht ein Abo (ca. 24,50 USD/Jahr) oder eine
+# 14-Tage-Evaluierungslizenz mit Online-Validierung. Die 9.x-Reihe ist
+# weiter kostenlos und wird gepflegt (9.10.x), die 9.x-.deb-Pakete werden
+# auf download.nomachine.com aber nicht mehr angeboten (alle geratenen
+# Pfade antworten 302 -> Startseite, geprüft 12.10.2026).
 #
-# Update auf neuere Version: aktuellen Link auf
-# https://download.nomachine.com/download/?id=43&platform=linux
-# (Personal Edition, 64-bit .deb) prüfen und in .chezmoidata.yaml ersetzen.
+# Deshalb: kein Download, sondern ein .deb aus dem Vault
+#   ~/Sync/vault/script/common/vendor/nomachine_9.*_amd64.deb
+# (dort liegen auch Deskflow-.deb und libdvdcss-Tarball; von einem Host mit
+# laufender 9.x gezogen: `sudo dpkg-repack nomachine`, Dateiname dann
+# nomachine_9.10.3-3_amd64.deb; daneben <datei>.sha256 wie bei Deskflow).
+# Herkunft des abgelegten Pakets (16.10.2026): nomachine_9.8.2_1_amd64.deb aus
+# github.com/mikorist/nomachine-free-9 (Drittanbieter-Mirror, nicht von
+# NoMachine; SHA256 6c26d79c…b83b64 = Angabe der Release-Seite). Gegengeprüft:
+# Skripte (prerm) bis auf Versionszeile identisch zum offiziellen 9.10.3,
+# 3616 von 3685 Nutzlast-Dateien byte-gleich zum offiziell installierten
+# 9.10.3 (x220), keine Netzwerkaufrufe im postinst. Die 69 abweichenden
+# Dateien (nx*.bin, Bibliotheken) sind nicht verifizierbar - deshalb nach der
+# Installation sofort über den NoMachine-Updater auf das offizielle 9.10.x
+# ziehen (ersetzt sie durch Originale).
+# run_after statt run_once: Das .deb darf nach dem ersten Apply nachgereicht
+# werden (Syncthing); das Skript ist idempotent und fragt sudo nur, wenn
+# wirklich installiert wird. Ist 9.x installiert, hält NoMachines eigener
+# Updater die 9.x-Reihe aktuell (x220: 9.9.6 -> 9.10.3 nach Erscheinen von 10).
+# Es wird nur installiert, wenn die Paketversion mit 9. beginnt - ein
+# versehentlich abgelegtes 10er-Paket wird abgelehnt. Fehlt das .deb,
+# endet das Skript mit Hinweis und Exit 0 (NoMachine ist optional).
 # ══════════════════════════════════════════════════════════════════
 
-NOMACHINE_URL="{{ .downloads.nomachine }}"
-
 if dpkg -s nomachine >/dev/null 2>&1; then
-  echo "==> NoMachine bereits installiert, überspringe."
-else
-  echo "==> Installiere NoMachine..."
-  TMPDIR="$(mktemp -d)"
-  trap 'rm -rf "$TMPDIR"' EXIT
-  DEB_PATH="$TMPDIR/nomachine.deb"
-
-  curl -fsSL -o "$DEB_PATH" "$NOMACHINE_URL"
-  # Veraltete Links antworten mit 302 auf die Startseite - curl -f merkt das
-  # nicht und legt HTML als .deb ab ("Ungültige Archiv-Signatur"). Daher prüfen.
-  if ! dpkg-deb --info "$DEB_PATH" >/dev/null 2>&1; then
-    echo "FEHLER: $NOMACHINE_URL liefert kein .deb (Link veraltet? Siehe Kommentar oben)." >&2
-    exit 1
-  fi
-  sudo apt-get install -y "$DEB_PATH"
+  echo "==> NoMachine bereits installiert ($(dpkg-query -W -f='${Version}' nomachine)), überspringe."
+  exit 0
 fi
+
+VAULT_DIR="$HOME/Sync/vault/script/common/vendor"
+DEB_PATH=""
+if [ -d "$VAULT_DIR" ]; then
+  # neuestes 9.x-Paket (Versionssortierung)
+  DEB_PATH="$(find "$VAULT_DIR" -maxdepth 1 -name 'nomachine_9.*_amd64.deb' | sort -V | tail -n 1)"
+fi
+
+if [ -z "$DEB_PATH" ]; then
+  echo "==> NoMachine übersprungen: kein nomachine_9.*_amd64.deb in $VAULT_DIR." >&2
+  echo "    Siehe Kommentar in $0 (NoMachine 10 braucht Lizenz)." >&2
+  exit 0
+fi
+
+if [ -f "$DEB_PATH.sha256" ]; then
+  # Syncthing kann halb übertragene Dateien liegen lassen; Prüfsumme fängt das ab.
+  (cd "$(dirname "$DEB_PATH")" && sha256sum -c --quiet "$(basename "$DEB_PATH").sha256")
+fi
+
+# Das echte Paket ist ~50 MB. Ein `dpkg-repack` des installierten Pakets ist
+# nur ein ~29-KB-Stub (die Nutzlast entpackt das Paketskript nach /usr/NX, dpkg
+# kennt sie nicht; die tar.gz unter /usr/share/NX/packages sind leer) und
+# installiert nichts Brauchbares (geprüft 16.10.2026).
+if [ "$(stat -c %s "$DEB_PATH")" -lt 10000000 ]; then
+  echo "FEHLER: $DEB_PATH ist zu klein für ein NoMachine-Paket (Repack-Stub?)." >&2
+  exit 1
+fi
+
+DEB_VERSION="$(dpkg-deb --field "$DEB_PATH" Version)"
+case "$DEB_VERSION" in
+  9.*) ;;
+  *) echo "FEHLER: $DEB_PATH hat Version $DEB_VERSION, erwartet 9.x (10 braucht Lizenz)." >&2; exit 1 ;;
+esac
+
+echo "==> Installiere NoMachine $DEB_VERSION aus dem Vault..."
+sudo apt-get install -y "$DEB_PATH"
 {{ end -}}

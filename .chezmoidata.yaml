@@ -42,6 +42,7 @@ machines:
       resurrectProcesses: 'btop "syncthing --no-browser"'
 
 # Gepinnte Direkt-Downloads (kein apt/brew-Paket). Der Preflight
-# (run_once_before_02) prüft sie per HEAD, bevor die langen Skripte starten.
-downloads:
-  nomachine: "https://web9001.nomachine.com/download/10.2/Linux/nomachine-personal-edition_10.2.3_1_amd64.deb"
+# (run_once_before_02) prüft jeden Eintrag per HEAD, bevor die langen
+# Skripte starten. Derzeit leer: NoMachine kommt als 9.x-.deb aus dem
+# Vault (run_after_35), weil 10.x lizenzpflichtig ist.
+downloads: {}

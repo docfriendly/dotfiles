@@ -25,5 +25,7 @@ check_url() {
   esac
 }
 
-check_url "{{ .downloads.nomachine }}"
+{{ range $name, $url := .downloads -}}
+check_url "{{ $url }}" # {{ $name }}
+{{ end -}}
 {{ end -}}

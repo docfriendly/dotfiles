@@ -85,14 +85,17 @@ Das löst automatisch die komplette Kette aus:
    (sudo/apt/Downloads), dann 70 (Brew-Bundle), 72 (asdf), 74 (tmux),
    75 (nvim). Das sudo-Ticket läuft nach 15 min ab; deshalb darf nach
    den sudo-Skripten kein weiteres sudo mehr kommen.
-5. `run_once_after_35-install-nomachine.sh.tmpl` – nur unter Linux
-   (macOS läuft über den `cask "nomachine"` im Brewfile):
-   lädt das gepinnte `.deb` von NoMachine herunter, prüft es mit
-   `dpkg-deb --info` und installiert es per `sudo apt-get install`. Gibt
-   kein apt/nala-Paket, daher direkter Download; Version steht in
-   `.chezmoidata.yaml` (`downloads.nomachine`), da NoMachine keine stabile
-   "latest"-URL anbietet. Veraltete Links antworten mit 302 auf die
-   Startseite – das fängt der Preflight (`run_once_before_02`) ab
+5. `run_after_35-install-nomachine.sh.tmpl` – nur unter Linux (läuft bei
+   jedem Apply, idempotent):
+   installiert **NoMachine 9** aus einem `.deb` im Vault
+   (`~/Sync/vault/script/common/vendor/nomachine_9.*_amd64.deb`, per
+   `sudo apt-get install`). Kein Download: NoMachine 10 (seit 30.07.2026)
+   hat den kostenlosen Server abgeschafft (Abo oder 14-Tage-Evaluierung),
+   die 9.x-Pakete bietet die Download-Seite nicht mehr an. Das Skript
+   lehnt Pakete mit Version != 9.x ab und endet ohne `.deb` mit Hinweis
+   und Exit 0. Quelle des `.deb`: `sudo dpkg-repack nomachine` auf einem
+   Host mit 9.x; danach hält NoMachines eigener Updater die 9.x-Reihe. Auf macOS gilt weiter der `cask "nomachine"` im Brewfile
+   (liefert 10, braucht dort Lizenz bzw. Player-Nutzung)
 6. `run_once_after_70-install-brew-bundle.sh.tmpl` – installiert alle
    Pakete aus `~/.Brewfile` (starship, zoxide, asdf, ripgrep, fzf, ...)
    und richtet die fzf-Shell-Integration nicht-interaktiv ein
@@ -546,10 +549,12 @@ nächsten `chezmoi apply` erneut – nach dem Fix reicht
 
 - **Gepinnter Download liefert HTML statt Paket**: NoMachines alter Link
   antwortete mit 302 auf die Startseite, `curl -f` merkte nichts, apt:
-  „Ungültige Archiv-Signatur“. Seitdem prüft der Preflight
-  (`run_once_before_02`) die URLs aus `.chezmoidata.yaml` (`downloads.*`)
-  und Skript 35 zusätzlich per `dpkg-deb --info`. Neue gepinnte Downloads
-  dort eintragen und im Preflight ergänzen.
+  „Ungültige Archiv-Signatur“. Der Preflight (`run_once_before_02`)
+  prüft deshalb jeden Eintrag unter `downloads:` in `.chezmoidata.yaml`
+  (derzeit leer). Neue gepinnte Downloads dort eintragen.
+- **NoMachine 10 verlangt Lizenz** („Personal Edition Evaluation“): die
+  kostenlose Server-Edition gab es nur bis 9.x. Skript 35 installiert
+  deshalb ein 9.x-`.deb` aus dem Vault, nicht mehr aus dem Netz.
 - **Template `map has no entry for key`**: `$machine.<schluessel>` bricht auf
   Hosts ab, die den Schlüssel nicht haben. Optionale Schlüssel immer mit
   `index $machine "schluessel"` abfragen (fehlend = false), z.B.
