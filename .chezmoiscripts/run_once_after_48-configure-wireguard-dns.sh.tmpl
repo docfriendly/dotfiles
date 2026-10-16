@@ -49,8 +49,10 @@ else
 fi
 
 # Neu einlesen, damit /etc/resolv.conf nicht leer bleibt (kein Restart,
-# SSH-Sitzungen bleiben bestehen)
+# SSH-Sitzungen bleiben bestehen). Ohne Argument lädt nmcli alles neu
+# (conf + dns-rc + dns-full); mehrere Flags auf einmal nimmt nmcli auf ihht
+# nicht an ("Error: extra argument 'dns-rc'", 16.10.2026).
 if command -v nmcli >/dev/null 2>&1; then
-  sudo nmcli general reload conf dns-rc
+  sudo nmcli general reload
 fi
 {{ end -}}
