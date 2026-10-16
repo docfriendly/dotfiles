@@ -136,7 +136,7 @@
       <property name="digital-time-format" type="string" value="%H:%M"/>
       <property name="digital-time-font" type="string" value="Sans Bold 9"/>
       <property name="show-week-numbers" type="bool" value="true"/>
-      <property name="tooltip-format" type="string" value="%x"/>
+      <property name="tooltip-format" type="string" value="(KW&lt;b&gt;%V&lt;/b&gt;)  •  %d.%m.  •  %H:%M"/>
       <property name="binary-mode" type="uint" value="0"/>
       <property name="show-seconds" type="bool" value="false"/>
       <property name="show-grid" type="bool" value="false"/>
