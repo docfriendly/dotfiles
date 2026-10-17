@@ -93,9 +93,18 @@ Das löst automatisch die komplette Kette aus:
    hat den kostenlosen Server abgeschafft (Abo oder 14-Tage-Evaluierung),
    die 9.x-Pakete bietet die Download-Seite nicht mehr an. Das Skript
    lehnt Pakete mit Version != 9.x ab und endet ohne `.deb` mit Hinweis
-   und Exit 0. Quelle des `.deb`: `sudo dpkg-repack nomachine` auf einem
-   Host mit 9.x; danach hält NoMachines eigener Updater die 9.x-Reihe. Auf macOS gilt weiter der `cask "nomachine"` im Brewfile
-   (liefert 10, braucht dort Lizenz bzw. Player-Nutzung)
+   und Exit 0. Quelle des `.deb`: der Drittanbieter-Mirror
+   `mikorist/nomachine-free-9` (9.8.2, SHA256 im Skriptkommentar; Skripte und
+   fast alle Dateien gegen das offizielle 9.10.3 geprüft). **`dpkg-repack`
+   taugt nicht** (nur ein 29-KB-Stub, die Nutzlast kennt dpkg nicht). Direkt
+   nach der Installation ruft das Skript `nxupdatecli --upgrade` auf; der
+   Updater (kein `.deb`, er ersetzt Dateien in `/usr/NX`) macht daraus das
+   offizielle 9.10.x (ihht: 68 Dateien, ~3 min, Internet nötig). Vor einer
+   Neuinstallation müssen `nomachine` **und** `nomachine-personal-edition`
+   per `dpkg --purge` samt `rm -rf /usr/NX /etc/NX /var/NX` entfernt sein; das
+   Skript bricht bei Resten mit Bereinigungsbefehl ab. Auf macOS gilt weiter
+   der `cask "nomachine"` im Brewfile (liefert 10, braucht dort Lizenz bzw.
+   Player-Nutzung)
 6. `run_once_after_70-install-brew-bundle.sh.tmpl` – installiert alle
    Pakete aus `~/.Brewfile` (starship, zoxide, asdf, ripgrep, fzf, ...)
    und richtet die fzf-Shell-Integration nicht-interaktiv ein

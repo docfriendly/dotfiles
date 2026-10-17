@@ -13,22 +13,24 @@ set -eufo pipefail
 #
 # Deshalb: kein Download, sondern ein .deb aus dem Vault
 #   ~/Sync/vault/script/common/vendor/nomachine_9.*_amd64.deb
-# (dort liegen auch Deskflow-.deb und libdvdcss-Tarball; von einem Host mit
-# laufender 9.x gezogen: `sudo dpkg-repack nomachine`, Dateiname dann
-# nomachine_9.10.3-3_amd64.deb; daneben <datei>.sha256 wie bei Deskflow).
+# (dort liegen auch Deskflow-.deb und libdvdcss-Tarball; daneben
+# <datei>.sha256 wie bei Deskflow). `dpkg-repack` taugt NICHT als Quelle (nur ein
+# 29-KB-Stub, siehe unten); der NoMachine-Updater liefert kein .deb, sondern
+# ersetzt Dateien in /usr/NX direkt.
 # Herkunft des abgelegten Pakets (16.10.2026): nomachine_9.8.2_1_amd64.deb aus
 # github.com/mikorist/nomachine-free-9 (Drittanbieter-Mirror, nicht von
 # NoMachine; SHA256 6c26d79c…b83b64 = Angabe der Release-Seite). Gegengeprüft:
 # Skripte (prerm) bis auf Versionszeile identisch zum offiziellen 9.10.3,
 # 3616 von 3685 Nutzlast-Dateien byte-gleich zum offiziell installierten
 # 9.10.3 (x220), keine Netzwerkaufrufe im postinst. Die 69 abweichenden
-# Dateien (nx*.bin, Bibliotheken) sind nicht verifizierbar - deshalb nach der
-# Installation sofort über den NoMachine-Updater auf das offizielle 9.10.x
-# ziehen (ersetzt sie durch Originale).
+# Dateien (nx*.bin, Bibliotheken) sind nicht verifizierbar - deshalb ruft das
+# Skript nach der Installation `nxupdatecli --upgrade` auf: der ersetzt sie
+# durch die offiziellen Dateien des aktuellen 9.x (ihht 17.10.2026: 9.8.2 ->
+# 9.10.3, "68 files updated", ~3 min, Internet zu NoMachine noetig; bleibt in
+# der 9er-Reihe, auch nach Erscheinen von 10).
 # run_after statt run_once: Das .deb darf nach dem ersten Apply nachgereicht
 # werden (Syncthing); das Skript ist idempotent und fragt sudo nur, wenn
-# wirklich installiert wird. Ist 9.x installiert, hält NoMachines eigener
-# Updater die 9.x-Reihe aktuell (x220: 9.9.6 -> 9.10.3 nach Erscheinen von 10).
+# wirklich installiert wird.
 # Es wird nur installiert, wenn die Paketversion mit 9. beginnt - ein
 # versehentlich abgelegtes 10er-Paket wird abgelehnt. Fehlt das .deb,
 # endet das Skript mit Hinweis und Exit 0 (NoMachine ist optional).
@@ -104,4 +106,17 @@ esac
 
 echo "==> Installiere NoMachine $DEB_VERSION aus dem Vault..."
 sudo apt-get install -y "$DEB_PATH"
+
+# Binaries des Drittanbieter-Pakets durch die offiziellen ersetzen (siehe oben).
+echo "==> NoMachine-Updater: ersetze Dateien durch das offizielle 9.x (dauert einige Minuten)..."
+if sudo /usr/NX/bin/nxupdatecli --upgrade; then
+  NX_AFTER="$(cat /usr/NX/etc/version 2>/dev/null || true)"
+  echo "==> NoMachine jetzt auf $NX_AFTER."
+  case "$NX_AFTER" in
+    9.*) ;;
+    *) echo "FEHLER: Updater hat auf $NX_AFTER gewechselt (erwartet 9.x) - Bereinigung siehe Kommentar oben." >&2; exit 1 ;;
+  esac
+else
+  echo "WARNUNG: NoMachine-Updater fehlgeschlagen - die Mirror-Binaries (Version $DEB_VERSION) bleiben. Spaeter von Hand: sudo /usr/NX/bin/nxupdatecli --upgrade" >&2
+fi
 {{ end -}}
