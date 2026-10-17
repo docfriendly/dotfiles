@@ -34,9 +34,39 @@ set -eufo pipefail
 # endet das Skript mit Hinweis und Exit 0 (NoMachine ist optional).
 # ══════════════════════════════════════════════════════════════════
 
+# Mischzustand erkennen (ihht, 17.10.2026): dpkg kennt /usr/NX nicht, ein
+# `dpkg --purge` laesst die Nutzlast liegen, und der postinst eines 9.x-Pakets
+# behaelt eine vorhandene 10.x-Installation ("Updating nxserver version:
+# 10.2.3") - dpkg meldet dann 9.8.2, laufen tut 10 und verlangt eine Lizenz.
+# Saubere Neuinstallation: sudo dpkg --purge nomachine && sudo rm -rf /usr/NX /etc/NX /var/NX
+NX_VERSION="$(cat /usr/NX/etc/version 2>/dev/null || true)"
+
+# Das 10er-Paket heisst nomachine-personal-edition (nicht nomachine): ein
+# `dpkg --purge nomachine` trifft es nicht, und `Replaces` laesst dpkg die
+# 9.x-Dateien nicht entpacken (postinst: Exit 127). Rettung auf ihht:
+#   sudo rm -f /var/lib/dpkg/info/nomachine{,-personal-edition}.prerm
+#   sudo dpkg --purge nomachine nomachine-personal-edition
+if dpkg -s nomachine-personal-edition >/dev/null 2>&1; then
+  echo "FEHLER: Paket nomachine-personal-edition ($(dpkg-query -W -f='${Version}' nomachine-personal-edition)) ist installiert (10.x braucht Lizenz)." >&2
+  echo "        Entfernen: sudo dpkg --purge nomachine-personal-edition && sudo rm -rf /usr/NX /etc/NX /var/NX, dann erneut anwenden." >&2
+  exit 1
+fi
+
 if dpkg -s nomachine >/dev/null 2>&1; then
-  echo "==> NoMachine bereits installiert ($(dpkg-query -W -f='${Version}' nomachine)), überspringe."
+  DPKG_VERSION="$(dpkg-query -W -f='${Version}' nomachine)"
+  if [ -n "$NX_VERSION" ] && [ "${NX_VERSION%%.*}" != "${DPKG_VERSION%%.*}" ]; then
+    echo "FEHLER: dpkg meldet NoMachine $DPKG_VERSION, /usr/NX/etc/version aber $NX_VERSION (Mischzustand)." >&2
+    echo "        Bereinigen: sudo dpkg --purge nomachine && sudo rm -rf /usr/NX /etc/NX /var/NX, dann erneut anwenden." >&2
+    exit 1
+  fi
+  echo "==> NoMachine bereits installiert ($DPKG_VERSION), überspringe."
   exit 0
+fi
+
+if [ -n "$NX_VERSION" ]; then
+  echo "FEHLER: NoMachine $NX_VERSION liegt noch in /usr/NX, ist aber nicht als Paket installiert (Rest eines purge)." >&2
+  echo "        Bereinigen: sudo rm -rf /usr/NX /etc/NX /var/NX, dann erneut anwenden." >&2
+  exit 1
 fi
 
 VAULT_DIR="$HOME/Sync/vault/script/common/vendor"
