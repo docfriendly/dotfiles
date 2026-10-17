@@ -67,6 +67,22 @@ machines:
       # hier, sondern in ~/Sync/vault/tmux/ihht/resurrect-processes, siehe
       # dot_config/tmux/tmux.conf.tmpl.
       resurrectProcesses: 'btop'
+  praxis-eiffel:
+    heartbeat:
+      top: true
+    syncthing: # wie ihht: nur ueber WireGuard, nichts im Netz suchen
+      autostart: true
+      localDiscovery: false
+      globalDiscovery: false
+      relays: false
+      nat: false
+    wireguard: true # NM-Profil mit autoconnect
+    wireguardName: eiffel-praxmon # Interface max. 15 Zeichen; Datei /etc/wireguard/eiffel-praxmon.conf
+    tmux:
+      statusBg: "colour141 #flieder" # gleiche Farbe wie ihht (bewusst)
+      # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
+      # hier, sondern in ~/Sync/vault/tmux/praxis-eiffel/resurrect-processes.
+      resurrectProcesses: 'btop'
 
 # Gepinnte Direkt-Downloads (kein apt/brew-Paket). Der Preflight
 # (run_once_before_02) prüft jeden Eintrag per HEAD, bevor die langen

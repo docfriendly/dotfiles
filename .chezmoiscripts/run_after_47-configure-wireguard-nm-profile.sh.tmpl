@@ -30,7 +30,9 @@ if ! command -v nmcli >/dev/null 2>&1; then
   exit 0
 fi
 
-NAME="{{ .chezmoi.hostname }}-praxmon"
+# Interface-Namen sind auf 15 Zeichen begrenzt; lange Hostnamen setzen
+# machines.<host>.wireguardName (z.B. eiffel-praxmon fuer praxis-eiffel).
+NAME="{{ index $machine "wireguardName" | default (printf "%s-praxmon" .chezmoi.hostname) }}"
 CONF="/etc/wireguard/$NAME.conf"
 
 if nmcli -t -f NAME connection show | grep -qx "$NAME"; then
@@ -43,6 +45,14 @@ if nmcli -t -f NAME connection show | grep -qx "$NAME"; then
     echo "==> NM-Profil $NAME vorhanden (autoconnect), ueberspringe."
   fi
   exit 0
+fi
+
+# Peer-Datei aus dem Vault (~/Sync/vault/wireguard/<host>/<Name>.conf, per
+# Syncthing verteilt) nach /etc/wireguard legen, falls dort noch keine liegt.
+VAULT_CONF="$HOME/Sync/vault/wireguard/{{ .chezmoi.hostname }}/$NAME.conf"
+if ! sudo test -f "$CONF" && [ -f "$VAULT_CONF" ]; then
+  echo "==> Lege $CONF aus dem Vault an (root:root, 600)..."
+  sudo install -m 600 -o root -g root "$VAULT_CONF" "$CONF"
 fi
 
 # /etc/wireguard gehoert root, harry kann das Verzeichnis nicht lesen
