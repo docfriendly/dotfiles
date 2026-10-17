@@ -477,6 +477,19 @@ format = "[$symbol $output]($style) "
 style = "bold fg:blue"
 shell = ["bash", "--noprofile", "--norc"]
 
+# Syncthing läuft per @reboot-Cron ohne Supervisor: stirbt der Prozess, startet
+# ihn niemand neu und der Vault synchronisiert still nicht mehr. Warnt daher nur
+# bei Ausfall (rot), sonst unsichtbar. Nur auf Hosts, auf denen Syncthing
+# eingerichtet ist (Zustandsverzeichnis vorhanden).
+[custom.syncthing_down]
+description = "Warnung, wenn Syncthing nicht läuft"
+command = "echo sync aus"
+when = '[ -d "$HOME/.local/state/syncthing" ] && ! pgrep -x syncthing >/dev/null'
+symbol = "󰓦"
+format = "[$symbol $output]($style) "
+style = "bold fg:red"
+shell = ["bash", "--noprofile", "--norc"]
+
 # Custom module to show tmux session in prompt
 [custom.tmux_session]
 command = "tmux display-message -p '#S' 2>/dev/null"
