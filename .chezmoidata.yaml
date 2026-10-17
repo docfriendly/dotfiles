@@ -33,7 +33,7 @@ machines:
   ihht:
     heartbeat:
       top: false # Leicht-Modus bis Kosten gemessen (aelteste Hardware, Centrino 2)
-    wireguard: true # resolvconf + NM rc-manager, siehe run_once_after_48-configure-wireguard-dns.sh.tmpl
+    wireguard: true # Tunnel als NM-Profil mit autoconnect, siehe run_after_47-configure-wireguard-nm-profile.sh.tmpl (README: Entscheidung 16.10.2026)
     tmux:
       statusBg: "colour141 #flieder"
       # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT

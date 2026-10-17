@@ -1,0 +1,58 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname }}
+{{ if and (ne .chezmoi.os "darwin") (index $machine "wireguard") -}}
+# ══════════════════════════════════════════════════════════════════
+# WIREGUARD-TUNNEL ALS NETWORKMANAGER-PROFIL (nur Hosts mit
+# machines.<host>.wireguard: true)
+# Autostart des Tunnels beim Boot, ohne Login und ohne Init-System-Bindung
+# (ihht: systemd, x220/x230: sysvinit - NetworkManager laeuft auf beiden).
+# NM uebernimmt `DNS =` der Peer-Datei ins Profil, resolvconf ist dafuer
+# nicht noetig. Getestet auf ihht 16.10.2026.
+#
+# Die Peer-Datei /etc/wireguard/<host>-praxmon.conf (Private Key, root:root
+# 600) bleibt Handarbeit - sie gehoert nicht ins Repo. Fehlt sie, endet das
+# Skript mit Hinweis und Exit 0; es laeuft bei jedem Apply (idempotent) und
+# holt den Import nach, sobald die Datei da ist.
+#
+# Das Skript AKTIVIERT den Tunnel nicht: ein laufender wg-quick-Tunnel
+# gleichen Namens wuerde kollidieren, und ein Hochfahren mitten im Apply
+# kann die SSH-Sitzung abschneiden. Aktivieren: `sudo nmcli connection up
+# <host>-praxmon` (per SSH braucht nmcli sudo, sonst "Not authorized"),
+# danach startet NM das Profil bei jedem Boot selbst.
+# autoconnect-retries 0 = beliebig oft wiederholen: NM loest den Endpoint
+# nur beim Aktivieren auf, ohne WLAN/DNS scheitert der erste Versuch.
+# ══════════════════════════════════════════════════════════════════
+
+if ! command -v nmcli >/dev/null 2>&1; then
+  echo "==> WireGuard-Profil uebersprungen: nmcli (NetworkManager) fehlt." >&2
+  exit 0
+fi
+
+NAME="{{ .chezmoi.hostname }}-praxmon"
+CONF="/etc/wireguard/$NAME.conf"
+
+if nmcli -t -f NAME connection show | grep -qx "$NAME"; then
+  AUTO="$(nmcli -g connection.autoconnect connection show "$NAME")"
+  RETRIES="$(nmcli -g connection.autoconnect-retries connection show "$NAME")"
+  if [ "$AUTO" != "yes" ] || [ "$RETRIES" != "0" ]; then
+    echo "==> Setze autoconnect fuer $NAME..."
+    sudo nmcli connection modify "$NAME" connection.autoconnect yes connection.autoconnect-retries 0
+  else
+    echo "==> NM-Profil $NAME vorhanden (autoconnect), ueberspringe."
+  fi
+  exit 0
+fi
+
+# /etc/wireguard gehoert root, harry kann das Verzeichnis nicht lesen
+if ! sudo test -f "$CONF"; then
+  echo "==> WireGuard-Profil uebersprungen: $CONF fehlt (Peer-Datei von Hand ablegen, Kommentar im Skript)." >&2
+  exit 0
+fi
+
+echo "==> Importiere $CONF als NetworkManager-Profil $NAME..."
+sudo nmcli connection import type wireguard file "$CONF"
+sudo nmcli connection modify "$NAME" connection.autoconnect yes connection.autoconnect-retries 0
+echo "    Aktivieren: sudo nmcli connection up $NAME (ein laufender wg-quick-Tunnel vorher: wg-quick down $NAME)"
+{{ end -}}

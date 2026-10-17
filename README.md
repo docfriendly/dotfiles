@@ -584,27 +584,69 @@ braucht – der erste Peer-Eintrag je Host ist deshalb Handarbeit:
 scp <host>-praxmon.conf <user>@<host>:~/           # /etc/wireguard gehört root
 sudo install -m 600 -o root -g root ~/<host>-praxmon.conf /etc/wireguard/
 shred -u ~/<host>-praxmon.conf
-sudo /home/linuxbrew/.linuxbrew/bin/wg-quick up <host>-praxmon   # voller Pfad: sudo kennt den Linuxbrew-PATH nicht
-sudo wg show                                        # Handshake prüfen
+chezmoi apply                                       # run_after_47 importiert die Datei als NM-Profil
+sudo nmcli connection up <host>-praxmon             # einmal aktivieren, danach startet NM sie beim Boot
 ```
 
-- **Autostart** gibt es nicht (weder systemd-Unit noch `init.d`); der Tunnel
-  wird von Hand gestartet.
+- **Autostart über ein NetworkManager-Profil** (Entscheidung 16.10.2026,
+  `run_after_47-configure-wireguard-nm-profile`, nur Hosts mit
+  `machines.<host>.wireguard: true`): importiert die Peer-Datei per
+  `nmcli connection import type wireguard`, setzt `autoconnect yes` und
+  `autoconnect-retries 0` (NM löst den Endpoint nur beim Aktivieren auf;
+  ohne WLAN/DNS scheitert der erste Versuch). init-unabhängig (ihht: systemd,
+  x220/x230: sysvinit), kein Login nötig. Das Skript aktiviert nicht selbst
+  (kollidiert mit laufendem `wg-quick`, kann die SSH-Sitzung abschneiden).
+  Per SSH braucht auch `nmcli connection up` `sudo` (`Not authorized to
+  control networking`).
+- **Entscheidung und Rollback:** siehe Abschnitt „Entscheidung 16.10.2026"
+  unten.
 - **`AllowedIPs`**: wg-easy liefert `0.0.0.0/0, ::/0` (Vollverkehr). Für
   Hosts, die nur das VPN-Subnetz brauchen (Kiosk), auf dieses Subnetz
   einschränken, sonst läuft der gesamte Verkehr durch den Tunnel.
 - **Dateirechte** `600 root:root`; `wg-quick` warnt bei world-readable.
-- **`DNS =` in der Peer-Datei** braucht `resolvconf` (ruft `wg-quick` auf).
-  Auf Hosts mit NetworkManager ersetzt `resolvconf` jedoch
-  `/etc/resolv.conf` durch einen Symlink auf eine leere Datei – ohne
-  Namensauflösung. Deshalb legt `run_once_after_48-configure-wireguard-dns`
-  zusätzlich `/etc/NetworkManager/conf.d/rc-manager.conf` mit
-  `rc-manager=resolvconf` an, damit NM seine Server dort anmeldet. Das
-  Skript läuft nur auf Hosts mit `machines.<host>.wireguard: true` in
-  `.chezmoidata.yaml`. Ohne `DNS =` (Split-Tunnel, DNS aus NetworkManager)
-  braucht man weder `resolvconf` noch das Skript.
-- Auf einem Host ohne `resolvconf`, bei dem es versehentlich installiert
-  wurde: `sudo apt purge resolvconf && sudo nmcli general reload dns-rc`.
+- **`DNS =` in der Peer-Datei**: Mit dem NM-Profil übernimmt NetworkManager
+  die Server selbst, `resolvconf` ist nicht nötig. Nur beim Start per
+  `wg-quick` von Hand braucht `DNS =` `resolvconf` (und damit unter
+  NetworkManager `rc-manager=resolvconf`, sonst bleibt `/etc/resolv.conf` leer
+  und es gibt keine Namensauflösung). Ein Host ohne `resolvconf`, bei dem es
+  versehentlich installiert wurde: `sudo apt purge resolvconf && sudo nmcli
+  general reload`.
+- **`nmcli general reload` nimmt nur ein Flag oder keines**: `reload conf
+  dns-rc` bricht mit `extra argument 'dns-rc'` ab (nmcli 1.52, ihht
+  16.10.2026), und `reload dns-rc` allein reichte nicht. Sofortfix bei
+  leerer `/etc/resolv.conf` (z. B. `chezmoi update` findet GitHub nicht):
+  `sudo nmcli general reload` ohne Argument.
+
+### Entscheidung 16.10.2026: NM-Profil statt `resolvconf`-Skript
+
+**Vorher** (Commits `5ec6dd5`, `2b3559a`): `run_once_after_48-configure-wireguard-dns`
+installierte `resolvconf` und setzte `rc-manager=resolvconf`, der Tunnel lief
+per `wg-quick` von Hand. Das Skript hat auf ihht den Apply abgebrochen und DNS
+lahmgelegt (siehe oben).
+
+**Jetzt:** Skript 48 ist entfernt, Skript 47 importiert ein NM-Profil mit
+`autoconnect`. Gründe: init-unabhängig (kein systemd nötig), startet beim Boot
+ohne Login, kein `resolvconf`-Eingriff in `/etc/resolv.conf`, weniger
+bewegliche Teile. Getestet auf ihht: Profil aktiv, `github.com` löst auf, x220
+(`10.8.0.3`) antwortet. **Noch nicht getestet:** Reboot ohne manuellen Eingriff.
+
+**Risiken:** NM löst den Endpoint nur beim Aktivieren auf (Wiederholungen über
+`autoconnect-retries 0`); das WLAN-Profil des Hosts muss vor dem Login
+verbinden (systemweit gespeicherter Schlüssel); `DNS =` aus der Peer-Datei
+steht jetzt im NM-Profil, spätere Änderungen daran erfordern erneuten Import
+(`sudo nmcli connection delete <host>-praxmon`, Apply).
+
+**Rollback:** Skript 48 wiederherstellen (`git revert` des Entfernen-Commits
+oder `git checkout 2b3559a -- .chezmoiscripts/run_once_after_48-configure-wireguard-dns.sh.tmpl`),
+Skript 47 löschen; auf dem Host `sudo nmcli connection delete <host>-praxmon`
+und den Tunnel wieder von Hand starten (`sudo
+/home/linuxbrew/.linuxbrew/bin/wg-quick up <host>-praxmon`). Auf ihht stehen
+`resolvconf` und `/etc/NetworkManager/conf.d/rc-manager.conf` noch aus dem
+alten Weg; für den Rollback passen sie, für den neuen Weg sind sie überflüssig
+(entfernen: `sudo apt purge resolvconf && sudo rm
+/etc/NetworkManager/conf.d/rc-manager.conf && sudo nmcli general reload`).
+
+Syncthing-Autostart per `@reboot`-Cron folgt als eigenes Skript.
 
 ## Maschinenspezifische Werte
 
