@@ -655,7 +655,30 @@ alten Weg; für den Rollback passen sie, für den neuen Weg sind sie überflüss
 (entfernen: `sudo apt purge resolvconf && sudo rm
 /etc/NetworkManager/conf.d/rc-manager.conf && sudo nmcli general reload`).
 
-Syncthing-Autostart per `@reboot`-Cron folgt als eigenes Skript.
+## Syncthing: Autostart und Verbindung über WireGuard
+
+`run_onchange_after_54-install-syncthing-autostart` trägt auf Hosts mit
+`machines.<host>.syncthing: true` eine `@reboot`-Zeile (Markierung `#
+syncthing-managed`) in die User-Crontab ein: `syncthing serve --no-browser`
+mit Logdatei unter `~/.local/state/syncthing/`. Cron, weil die Hosts
+unterschiedliche Init-Systeme haben (x220/x230/t410s sysvinit, ihht systemd)
+und der Kiosk als anderer User läuft (XDG-Autostart startete erst beim Login
+von `harry`). Ohne `--no-restart`, damit `syncthing cli operations restart`
+nicht nur beendet. `"syncthing --no-browser"` gehört deshalb **nicht** mehr
+in `resurrectProcesses` (tmux-resurrect würde eine zweite Instanz starten,
+die an der Datenbank-Sperre scheitert). Sofortstart ohne Reboot:
+`tmux new-session -d -s syncthing 'syncthing serve --no-browser'`.
+
+Verbindung nur über den Tunnel (nicht im Repo, Handarbeit je Host):
+- `ufw`: Port 22000/tcp nur auf dem Tunnel-Interface und nur für die Gegenstelle,
+  z. B. `sudo ufw allow in on <host>-praxmon from <WG-IP-der-Gegenstelle> to any
+  port 22000 proto tcp`.
+- Gerät der Gegenstelle mit fester Adresse `tcp://<WG-IP>:22000` eintragen
+  (REST `PATCH /rest/config/devices/<id>` oder GUI). Eine veraltete LAN-IP in
+  der Adressliste (ihht 17.10.2026) fiel erst beim Test auf.
+- Prüfen: `GET /rest/system/connections` zeigt `tcp-server`/`tcp-client` mit
+  der `10.8.0.x`-Adresse, nicht `relay`.
+- Beweis 17.10.2026: ihht↔x220 ohne `scp`, 100 % Abgleich, Datei kam an.
 
 ## Maschinenspezifische Werte
 

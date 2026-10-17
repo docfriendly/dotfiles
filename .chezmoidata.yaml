@@ -6,40 +6,44 @@ machines:
       hibernate: true
       log: "Sync/vault/SECOND_BRAIN/x220-forensics-unplanned-restart/x220_heartbeat.log" # relativ zu $HOME
     sysvinit: true # bootet mit sysvinit statt systemd, siehe run_onchange_after_51-install-wlan-monitor-init.sh.tmpl
+    syncthing: true # Autostart per @reboot-Cron, siehe run_onchange_after_54-install-syncthing-autostart.sh.tmpl
     tmux:
       statusBg: "colour214 #dark orange"
       # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
       # Ziele stehen NICHT hier, sondern in ~/Sync/vault/tmux/x220/
       # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
-      resurrectProcesses: 'btop "syncthing --no-browser" "journalctl -f" "gping -n 0.9 1.1.1.1 google.de"'
+      resurrectProcesses: 'btop "journalctl -f" "gping -n 0.9 1.1.1.1 google.de"'
   x230:
     heartbeat:
       top: true
+    syncthing: true # siehe x220
     tmux:
       statusBg: "silver"
       # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
       # Ziele stehen NICHT hier, sondern in ~/Sync/vault/tmux/x230/
       # resurrect-processes, siehe dot_config/tmux/tmux.conf.tmpl.
-      resurrectProcesses: 'nvim btop "gping -n 0.8 1.1.1.1 google.de" "syncthing --no-browser" "mtr google.de" "./check_connection.sh"'
+      resurrectProcesses: 'nvim btop "gping -n 0.8 1.1.1.1 google.de" "mtr google.de" "./check_connection.sh"'
   t410s:
     heartbeat:
       top: true
+    syncthing: true # siehe x220
     tmux:
       statusBg: "colour33"
       # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
       # hier, sondern in ~/Sync/vault/tmux/t410s/resurrect-processes, siehe
       # dot_config/tmux/tmux.conf.tmpl.
-      resurrectProcesses: 'btop "syncthing --no-browser"'
+      resurrectProcesses: 'btop'
   ihht:
     heartbeat:
       top: false # Leicht-Modus bis Kosten gemessen (aelteste Hardware, Centrino 2)
+    syncthing: true # siehe x220
     wireguard: true # Tunnel als NM-Profil mit autoconnect, siehe run_after_47-configure-wireguard-nm-profile.sh.tmpl (README: Entscheidung 16.10.2026)
     tmux:
       statusBg: "colour141 #flieder"
       # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
       # hier, sondern in ~/Sync/vault/tmux/ihht/resurrect-processes, siehe
       # dot_config/tmux/tmux.conf.tmpl.
-      resurrectProcesses: 'btop "syncthing --no-browser"'
+      resurrectProcesses: 'btop'
 
 # Gepinnte Direkt-Downloads (kein apt/brew-Paket). Der Preflight
 # (run_once_before_02) prüft jeden Eintrag per HEAD, bevor die langen

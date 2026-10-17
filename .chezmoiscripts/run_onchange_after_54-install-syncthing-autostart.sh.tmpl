@@ -1,0 +1,60 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname -}}
+{{- if not $machine -}}
+{{   fail (printf "run_onchange_after_54-install-syncthing-autostart: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
+{{- end }}
+{{- $st := index $machine "syncthing" }}
+
+# ════════════════════════════════════════════════════════════════════════
+# SYNCTHING-AUTOSTART (User-Crontab, @reboot)
+# Aktiv nur auf Hosts mit machines.<host>.syncthing: true in
+# .chezmoidata.yaml. Cron statt systemd-User-Unit/XDG-Autostart/brew services:
+#  - x220/x230/t410s laufen mit sysvinit (kein systemd),
+#  - der Kiosk ihht laeuft als anderer User (ihht), harry loggt sich nur zum
+#    Administrieren ein - XDG-Autostart wuerde erst beim Login starten.
+# Cron laeuft auf beiden ohne Login. Die Zeile traegt die Markierung
+# "# syncthing-managed"; sie wird ersetzt, alles andere in der Crontab bleibt
+# unberuehrt (Muster wie run_onchange_after_53-install-heartbeat-cron).
+# Kein --no-restart: ohne den Schalter startet sich Syncthing nach
+# `syncthing cli operations restart` selbst neu (mit --no-restart beendet es
+# nur, ihht 09.10.2026). Doppelstart ist harmlos: die zweite Instanz scheitert
+# an der Datenbank-Sperre. Deshalb "syncthing --no-browser" nicht mehr in
+# resurrectProcesses (tmux), sonst startet tmux-resurrect eine zweite.
+# Der Daemon hoert auf allen Interfaces, die Erreichbarkeit regelt ufw (Port
+# 22000 nur ueber den WireGuard-Tunnel, siehe README). Der Tunnel muss beim
+# Boot stehen (run_after_47, NM-Profil mit autoconnect).
+# run_onchange: laeuft erneut, sobald sich die gerenderte Zeile aendert.
+# Sofort starten ohne Reboot: tmux new-session -d -s syncthing
+# 'syncthing serve --no-browser' (oder die Zeile aus `crontab -l` ausfuehren).
+# ════════════════════════════════════════════════════════════════════════
+
+if ! command -v crontab >/dev/null 2>&1; then
+  echo "syncthing-cron: crontab nicht vorhanden (cron nicht installiert) - uebersprungen" >&2
+  exit 0
+fi
+
+MARK='# syncthing-managed'
+CUR="$(crontab -l 2>/dev/null || true)"
+NEW="$(printf '%s\n' "$CUR" | grep -v -e "$MARK" || true)"
+
+{{ if $st -}}
+BIN="/home/linuxbrew/.linuxbrew/bin/syncthing"
+if [ ! -x "$BIN" ]; then
+  echo "syncthing-cron: $BIN fehlt (brew bundle noch nicht gelaufen?) - uebersprungen" >&2
+  exit 0
+fi
+mkdir -p "$HOME/.local/state/syncthing"
+LINE='@reboot '"$BIN"' serve --no-browser --log-file={{ .chezmoi.homeDir }}/.local/state/syncthing/syncthing.log --log-max-old-files=3 --log-max-size=1048576 '"$MARK"
+NEW="$(printf '%s\n%s\n' "$NEW" "$LINE")"
+{{- else -}}
+# Auf diesem Host ist kein Syncthing-Autostart vorgesehen: nur eine evtl. vorhandene Zeile entfernen.
+{{- end }}
+
+if [ "$NEW" != "$CUR" ]; then
+  mkdir -p "$HOME/.cache"
+  printf '%s\n' "$CUR" > "$HOME/.cache/crontab.bak.$(date +%s)"
+  printf '%s\n' "$NEW" | crontab -
+  echo "syncthing-cron: Crontab aktualisiert (Sicherung in ~/.cache/crontab.bak.*)"
+fi
