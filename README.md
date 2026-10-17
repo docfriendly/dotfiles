@@ -637,7 +637,7 @@ lahmgelegt (siehe oben).
 `autoconnect`. Gründe: init-unabhängig (kein systemd nötig), startet beim Boot
 ohne Login, kein `resolvconf`-Eingriff in `/etc/resolv.conf`, weniger
 bewegliche Teile. Getestet auf ihht: Profil aktiv, `github.com` löst auf, x220
-(`10.8.0.3`) antwortet. **Noch nicht getestet:** Reboot ohne manuellen Eingriff.
+antwortet. **Noch nicht getestet:** Reboot ohne manuellen Eingriff.
 
 **Risiken:** NM löst den Endpoint nur beim Aktivieren auf (Wiederholungen über
 `autoconnect-retries 0`); das WLAN-Profil des Hosts muss vor dem Login
@@ -699,6 +699,39 @@ Local Discovery an, Global Discovery/Relays/NAT aus (das Handy erreicht den x220
 über seine WG-Adresse mit fester Adresse im Handy-Syncthing und `ufw`-Regel
 auf dem Tunnel). Nicht in chezmoi: Kartoffelcomputer (Handarbeit),
 Handy-Syncthing.
+
+**Verbindungsrichtung und Tunnel-Adressen (Stand 17.10.2026, verifiziert
+über `GET /rest/system/connections`):**
+- `type: tcp-server` bei einem Gerät heißt: **das Gerät hat uns angerufen**
+  (eingehend), `tcp-client`: wir haben es angewählt. ihht, Handy: `tcp-server`
+  auf dem x220. Bei Verbindungen über Relay steht `relay-*`, dann ist etwas
+  nicht wie gewollt.
+- Jede Seite, die angewählt werden soll, braucht die `ufw`-Regel auf ihrem
+  Tunnel-Interface; wer nur ausgehend anruft (Handy), braucht auf seiner Seite
+  nichts. Auf dem x220 gibt es je eine Regel pro Peer-WG-Adresse (ihht
+  und so weiter; die Adressen stehen im Vault, nicht hier).
+- Mit `globalDiscovery`/`relays` aus kennt ein Gerät den anderen nur noch über
+  die feste Adresse (Gerät → Adressen) oder Local Discovery. Wer das vergisst,
+  sieht „nicht verbunden" ohne Fehlermeldung.
+
+**iOS (Synctrain), Einstellungen für „nur über WireGuard":**
+- Das Handy braucht einen aktiven WG-Tunnel (`AllowedIPs` mit dem WG-Netz).
+- Beim **Gerät** des x220 (Geräte → x220 → Adressen) die Adresse
+  `tcp://<x220-WG-IP>:22000` eintragen. Das war der entscheidende Schritt.
+- Einstellungen → Erweitert → Konnektivität → **Adressen** sind die *eigenen
+  Höradressen des Handys* (an denen Synctrain eingehende Verbindungen annimmt),
+  **nicht** die Adressen der Gegenstellen. Man verwechselt sie leicht.
+- „Standard-Höradressen verwenden", „Standard-Relays verwenden" und „Auf
+  eingehende Verbindungen hören" aus. iOS läuft im Hintergrund nur kurz, ein
+  lauschender Port erreicht ohnehin niemand; die Verbindung geht immer vom
+  Handy aus. Folge: In `~/Sync/vault/syncthing/x220/peers` steht das Handy nur
+  mit `dynamic`, nicht mit einer festen Adresse.
+- Optional: „Globale Suche"/NAT im Handy aus, sonst meldet es sich weiter bei
+  den öffentlichen Discovery-Servern.
+
+**Checkliste neuer Syncthing-Peer über WireGuard:** (1) `ufw`-Regel auf dem
+Gegenüber, (2) feste Adresse beim Gerät, (3) Eintrag in `peers`, (4) nach dem
+nächsten Apply `GET /rest/system/connections` prüfen (`tcp-*`, `10.8.0.x`).
 
 ## Maschinenspezifische Werte
 
