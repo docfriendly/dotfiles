@@ -658,7 +658,7 @@ alten Weg; für den Rollback passen sie, für den neuen Weg sind sie überflüss
 ## Syncthing: Autostart und Verbindung über WireGuard
 
 `run_onchange_after_54-install-syncthing-autostart` trägt auf Hosts mit
-`machines.<host>.syncthing: true` eine `@reboot`-Zeile (Markierung `#
+`machines.<host>.syncthing.autostart: true` eine `@reboot`-Zeile (Markierung `#
 syncthing-managed`) in die User-Crontab ein: `syncthing serve --no-browser`
 mit Logdatei unter `~/.local/state/syncthing/`. Cron, weil die Hosts
 unterschiedliche Init-Systeme haben (x220/x230/t410s sysvinit, ihht systemd)
@@ -679,6 +679,26 @@ Verbindung nur über den Tunnel (nicht im Repo, Handarbeit je Host):
 - Prüfen: `GET /rest/system/connections` zeigt `tcp-server`/`tcp-client` mit
   der `10.8.0.x`-Adresse, nicht `relay`.
 - Beweis 17.10.2026: ihht↔x220 ohne `scp`, 100 % Abgleich, Datei kam an.
+
+### Discovery, Relays und feste Adressen (`run_after_56-configure-syncthing`)
+
+Die Schalter stehen pro Host unter `machines.<host>.syncthing`
+(`localDiscovery`, `globalDiscovery`, `relays`, `nat`, jeweils true/false).
+Das Skript liest sie und setzt sie **per REST** (`PATCH /rest/config/options`),
+nur wenn der Ist-Wert abweicht; läuft der Daemon nicht, wartet es auf den
+nächsten Apply. `config.xml` wird bewusst nicht versioniert (Geräte, Ordner,
+API-Key, GUI-Hash; Syncthing überschreibt sie laufend). Die `syncthing cli`
+kennt `nat-enabled` nicht, deshalb REST.
+
+Feste Gegenstellen-Adressen (WireGuard-IPs, **nicht** im öffentlichen Repo)
+stehen in `~/Sync/vault/syncthing/<host>/peers`, eine Zeile pro Gerät:
+`<Geräte-ID> <Adresse> [<Adresse> …]`, `dynamic` lässt Discovery für dieses
+Gerät zu. Unbekannte (noch nicht gekoppelte) Geräte werden übersprungen.
+Stand 17.10.2026: ihht = alles aus (nur WireGuard); x220/x230/t410s =
+Local Discovery an, Global Discovery/Relays/NAT aus (das Handy erreicht den x220
+über seine WG-Adresse mit fester Adresse im Handy-Syncthing und `ufw`-Regel
+auf dem Tunnel). Nicht in chezmoi: Kartoffelcomputer (Handarbeit),
+Handy-Syncthing.
 
 ## Maschinenspezifische Werte
 

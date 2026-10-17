@@ -6,7 +6,15 @@ machines:
       hibernate: true
       log: "Sync/vault/SECOND_BRAIN/x220-forensics-unplanned-restart/x220_heartbeat.log" # relativ zu $HOME
     sysvinit: true # bootet mit sysvinit statt systemd, siehe run_onchange_after_51-install-wlan-monitor-init.sh.tmpl
-    syncthing: true # Autostart per @reboot-Cron, siehe run_onchange_after_54-install-syncthing-autostart.sh.tmpl
+    # Syncthing: autostart = @reboot-Cron (run_onchange_after_54); die uebrigen
+    # Werte setzt run_after_56 per REST. Feste Peer-Adressen (IPs!) stehen nicht
+    # hier, sondern in ~/Sync/vault/syncthing/<host>/peers.
+    syncthing:
+      autostart: true
+      localDiscovery: true
+      globalDiscovery: false # Handy erreicht den x220 ueber seine WG-Adresse
+      relays: false
+      nat: false
     tmux:
       statusBg: "colour214 #dark orange"
       # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
@@ -16,7 +24,12 @@ machines:
   x230:
     heartbeat:
       top: true
-    syncthing: true # siehe x220
+    syncthing: # siehe x220
+      autostart: true
+      localDiscovery: true
+      globalDiscovery: false
+      relays: false
+      nat: false
     tmux:
       statusBg: "silver"
       # Generischer Default (oeffentlicher Mirror!) - echte Kunden-/Heimnetz-
@@ -26,7 +39,12 @@ machines:
   t410s:
     heartbeat:
       top: true
-    syncthing: true # siehe x220
+    syncthing: # siehe x220
+      autostart: true
+      localDiscovery: true
+      globalDiscovery: false
+      relays: false
+      nat: false
     tmux:
       statusBg: "colour33"
       # Generischer Default (oeffentlicher Mirror!) - echte Ziele stehen NICHT
@@ -36,7 +54,12 @@ machines:
   ihht:
     heartbeat:
       top: false # Leicht-Modus bis Kosten gemessen (aelteste Hardware, Centrino 2)
-    syncthing: true # siehe x220
+    syncthing: # siehe x220; Kiosk nur ueber WireGuard, nichts im Netz suchen
+      autostart: true
+      localDiscovery: false
+      globalDiscovery: false
+      relays: false
+      nat: false
     wireguard: true # Tunnel als NM-Profil mit autoconnect, siehe run_after_47-configure-wireguard-nm-profile.sh.tmpl (README: Entscheidung 16.10.2026)
     tmux:
       statusBg: "colour141 #flieder"

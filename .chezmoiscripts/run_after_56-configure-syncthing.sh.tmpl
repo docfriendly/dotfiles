@@ -1,0 +1,89 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname }}
+{{- $st := index $machine "syncthing" }}
+{{ if and (ne .chezmoi.os "darwin") $st -}}
+# ══════════════════════════════════════════════════════════════════
+# SYNCTHING-OPTIONEN UND FESTE PEER-ADRESSEN (per REST)
+# Nur Hosts mit machines.<host>.syncthing in .chezmoidata.yaml.
+# 1. Optionen (localDiscovery, globalDiscovery, relays, nat) kommen aus den
+#    Daten. Boolesche Schalter ohne IPs, daher im Repo.
+# 2. Feste Geraete-Adressen stehen NICHT im Repo (WireGuard-IPs, oeffentlich
+#    gespiegelt), sondern in ~/Sync/vault/syncthing/<host>/peers:
+#      <Geraete-ID> <Adresse> [<Adresse> ...]    (# = Kommentar)
+#    "dynamic" laesst Discovery fuer dieses Geraet zu.
+# config.xml selbst ist Zustand (Geraete, Ordner, API-Key, GUI-Hash) und wird
+# nicht versioniert; Syncthing ueberschreibt sie laufend. Deshalb REST statt
+# Datei-Editieren. Laeuft der Daemon nicht (z.B. vor dem ersten Cron-@reboot),
+# endet das Skript mit Hinweis und holt es beim naechsten Apply nach.
+# Mehrere Schalter per `syncthing cli` gehen nicht: nat-enabled kennt die CLI
+# nicht (ihht 09.10.2026).
+# ══════════════════════════════════════════════════════════════════
+
+CFG="$HOME/.local/state/syncthing/config.xml"
+if [ ! -f "$CFG" ]; then
+  echo "syncthing-konfig: $CFG fehlt (Syncthing noch nie gestartet) - uebersprungen" >&2
+  exit 0
+fi
+KEY="$(grep -oP '(?<=<apikey>)[^<]+' "$CFG" | head -1)"
+ADDR="$(grep -oP '(?<=<address>)127[^<]+' "$CFG" | head -1)"
+API="http://${ADDR:-127.0.0.1:8384}/rest"
+
+api() { curl -sf -m 15 -H "X-API-Key: $KEY" "$@"; }
+
+if ! api "$API/system/ping" >/dev/null 2>&1; then
+  echo "syncthing-konfig: Daemon laeuft nicht - uebersprungen (naechster Apply holt es nach)" >&2
+  exit 0
+fi
+
+# --- Optionen -------------------------------------------------------
+# Syncthing liefert eingerueckte JSON-Ausgabe ("key": true); fuer den
+# Vergleich alle Leerraeume entfernen.
+OPTS="$(api "$API/config/options" | tr -d ' \n\t')"
+want() { # want <jsonKey> <true|false>
+  case "$OPTS" in *"\"$1\":$2"*) return 0 ;; *) return 1 ;; esac
+}
+PATCH=""
+add() { want "$1" "$2" || PATCH="$PATCH${PATCH:+,}\"$1\":$2"; }
+{{ if hasKey $st "localDiscovery" }}add localAnnounceEnabled {{ index $st "localDiscovery" }}{{ end }}
+{{ if hasKey $st "globalDiscovery" }}add globalAnnounceEnabled {{ index $st "globalDiscovery" }}{{ end }}
+{{ if hasKey $st "relays" }}add relaysEnabled {{ index $st "relays" }}{{ end }}
+{{ if hasKey $st "nat" }}add natEnabled {{ index $st "nat" }}{{ end }}
+if [ -n "$PATCH" ]; then
+  echo "==> Syncthing-Optionen setzen: {$PATCH}"
+  api -X PATCH -H 'Content-Type: application/json' -d "{$PATCH}" "$API/config/options" >/dev/null
+else
+  echo "==> Syncthing-Optionen bereits wie gewuenscht."
+fi
+
+# --- Feste Peer-Adressen --------------------------------------------
+PEERS="$HOME/Sync/vault/syncthing/{{ .chezmoi.hostname }}/peers"
+if [ -f "$PEERS" ]; then
+  while read -r ID ADDRS; do
+    case "$ID" in ""|"#"*) continue ;; esac
+    [ -n "$ADDRS" ] || continue
+    JSON="["; SEP=""
+    for A in $ADDRS; do JSON="$JSON$SEP\"$A\""; SEP=","; done
+    JSON="$JSON]"
+    CUR="$(api "$API/config/devices/$ID" 2>/dev/null || true)"
+    if [ -z "$CUR" ]; then
+      echo "    Geraet ${ID%%-*}… unbekannt (noch nicht gekoppelt) - uebersprungen" >&2
+      continue
+    fi
+    # Syncthing liefert die Liste mit Zeilenumbruechen/Einrueckung; fuer den
+    # Vergleich alle Leerraeume entfernen.
+    case "$(printf '%s' "$CUR" | tr -d ' \n\t')" in
+      *"\"addresses\":$JSON"*) ;;
+      *)
+        echo "==> Adressen fuer ${ID%%-*}…: $ADDRS"
+        api -X PATCH -H 'Content-Type: application/json' -d "{\"addresses\":$JSON}" "$API/config/devices/$ID" >/dev/null
+        ;;
+    esac
+  done < "$PEERS"
+fi
+
+if [ "$(api "$API/config/restart-required" 2>/dev/null | tr -d ' \n' )" != '{"requiresRestart":false}' ]; then
+  echo "    Hinweis: Syncthing meldet 'Neustart erforderlich' (config/restart-required)." >&2
+fi
+{{ end -}}

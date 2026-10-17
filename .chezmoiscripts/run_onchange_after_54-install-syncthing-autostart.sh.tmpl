@@ -9,7 +9,7 @@ set -eufo pipefail
 
 # ════════════════════════════════════════════════════════════════════════
 # SYNCTHING-AUTOSTART (User-Crontab, @reboot)
-# Aktiv nur auf Hosts mit machines.<host>.syncthing: true in
+# Aktiv nur auf Hosts mit machines.<host>.syncthing.autostart: true in
 # .chezmoidata.yaml. Cron statt systemd-User-Unit/XDG-Autostart/brew services:
 #  - x220/x230/t410s laufen mit sysvinit (kein systemd),
 #  - der Kiosk ihht laeuft als anderer User (ihht), harry loggt sich nur zum
@@ -39,7 +39,7 @@ MARK='# syncthing-managed'
 CUR="$(crontab -l 2>/dev/null || true)"
 NEW="$(printf '%s\n' "$CUR" | grep -v -e "$MARK" || true)"
 
-{{ if $st -}}
+{{ if and $st (index $st "autostart") -}}
 BIN="/home/linuxbrew/.linuxbrew/bin/syncthing"
 if [ ! -x "$BIN" ]; then
   echo "syncthing-cron: $BIN fehlt (brew bundle noch nicht gelaufen?) - uebersprungen" >&2
