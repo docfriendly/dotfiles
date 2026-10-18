@@ -47,7 +47,9 @@ if [ ! -f "$CFG" ] || ! grep -q '<device id=' "$CFG"; then
 fi
 
 MYID="$(grep -oP '<device id="\K[^"]+' "$CFG" | head -1)"
-NDEV="$(grep -c '<device id=' "$CFG" || true)"
+# Verschiedene IDs zaehlen: das eigene Geraet steht mehrfach in der config.xml
+# (Geraeteliste und Teilnehmerliste des Standardordners), count=3 bei distinct=1.
+NDEV="$(grep -oP '<device id="\K[^"]+' "$CFG" | sort -u | wc -l)"
 
 if [ "$NDEV" -gt 1 ]; then
   # schon gekoppelt: alte ID-Notiz ist erledigt
