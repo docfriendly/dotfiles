@@ -111,10 +111,22 @@ Das löst automatisch die komplette Kette aus:
 7. `run_once_after_72-install-asdf-tools.sh.tmpl` – registriert die
    asdf-Plugins und installiert alle Versionen aus `.tool-versions`
    (kompiliert Python/Ruby, dauert)
-   `run_once_after_74-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
+   `run_after_74-install-tmux-plugins.sh.tmpl` – klont TPM (Tmux
    Plugin Manager) und installiert alle in `.tmux.conf` deklarierten
-   Plugins nicht-interaktiv; `run_once_after_75-install-nvim-plugins`
-   holt die LazyVim-Plugins
+   Plugins nicht-interaktiv; `run_after_75-install-nvim-plugins`
+   holt die LazyVim-Plugins. Beide sind **weiche Schritte**: Fehler brechen den
+   Apply nicht ab, sondern landen im Warnlog; ein Stempel
+   (`~/.cache/chezmoi-stamps/`, Hash von `tmux.conf` bzw. `lazy-lock.json`)
+   sorgt dafür, dass erst ein erfolgreicher Lauf übersprungen wird. Hilfsfunktionen
+   `warn`/`note`/`stamp_ok`/`stamp_set` in `.chezmoitemplates/softstep.sh`;
+   `run_after_99-summary` zeigt am Ende alle Warnungen und Hinweise und leert
+   die Logs. (Grund: auf praxis-eiffel brach 75 am 18.10.2026 mit einem
+   Mason-Race ab, `run_once` hätte das nie wiederholt.) `tree-sitter-cli` kommt
+   aus dem Brewfile, damit LazyVim nicht auf Mason ausweicht.
+   `run_after_77-syncthing-device-id` startet Syncthing auf einem frischen Host
+   einmal, liest die Geräte-ID und zeigt sie im Abschlussblock, solange der Host
+   noch mit niemandem gekoppelt ist. Der Autostart-Cron ist
+   `run_onchange_after_76` (nach dem Brew-Bundle, sonst fehlt `syncthing`).
 8. `run_once_after_42-configure-sshd-iphone-acceptenv.sh.tmpl` – nur unter
    Linux: ergänzt `AcceptEnv IPHONE_CLIENT*` in `/etc/ssh/sshd_config` und
    lädt `sshd` neu, siehe [Termius/iPhone: tmux-Statuszeile](#termiusiphone-tmux-statuszeile)
