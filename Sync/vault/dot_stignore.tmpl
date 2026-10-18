@@ -1,0 +1,21 @@
+{{- $machine := index .machines .chezmoi.hostname -}}
+{{- $st := index $machine "syncthing" -}}
+{{- $inc := index $st "vaultInclude" -}}
+// Von chezmoi verwaltet (Sync/vault/dot_stignore.tmpl, machines.{{ .chezmoi.hostname }}.syncthing.vaultInclude).
+// Whitelist: nur die genannten Unterordner des Vaults kommen auf diesen Host,
+// alles andere (Passwort-Datenbanken, Schluessel anderer Hosts, Brain, ...) nicht.
+// Syncthing wertet von oben nach unten, der erste Treffer gilt; ein Muster ohne
+// "/**" trifft auch den Inhalt. Je Ordner: erst die erlaubten Unterordner (!),
+// dann alle anderen Kinder ignorieren, zuletzt den Ordner selbst erlauben.
+// Das ist KEINE Zugriffssperre: wer hier Schreibrechte hat, kann die Datei
+// aendern, dann laedt Syncthing den Rest nach. Gilt nur fuer neue Daten;
+// bereits uebertragene Dateien bleiben liegen.
+{{ range $dir, $kids := $inc -}}
+{{ if $kids -}}
+{{ range $kids }}!/{{ $dir }}/{{ . }}
+{{ end -}}
+/{{ $dir }}/*
+{{ end -}}
+!/{{ $dir }}
+{{ end -}}
+*

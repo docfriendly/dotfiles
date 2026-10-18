@@ -50,3 +50,12 @@ ulauncher-calc-patch
 {{- if ne .chezmoi.hostname "x220" }}
 .local/bin/pbuild
 {{- end }}
+
+# Vault-.stignore (Whitelist) nur auf Hosts mit machines.<host>.syncthing.vaultInclude
+# (z.B. praxis-eiffel), siehe Sync/vault/dot_stignore.tmpl.
+{{- $vm := index .machines .chezmoi.hostname }}
+{{- $vs := "" }}
+{{- if $vm }}{{ $vs = index $vm "syncthing" }}{{ end }}
+{{- if not (and $vs (index $vs "vaultInclude")) }}
+Sync/vault/.stignore
+{{- end }}

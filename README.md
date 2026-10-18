@@ -745,6 +745,23 @@ Handy-Syncthing.
 Gegenüber, (2) feste Adresse beim Gerät, (3) Eintrag in `peers`, (4) nach dem
 nächsten Apply `GET /rest/system/connections` prüfen (`tcp-*`, `10.8.0.x`).
 
+### Neuen Host anbinden: Weg über einen Nachbarn im LAN, Vault-Whitelist
+
+Ein frischer Host hat weder `.conf` noch `peers`; beides liegt im Vault, der per
+Syncthing kommt, das nur über den Tunnel laufen soll. Die erste Kopplung läuft
+deshalb über ein bereits gekoppeltes Gerät im selben LAN (Local Discovery oder
+feste LAN-Adresse), danach alles über WireGuard. Alle Schritte gehen per
+`syncthing cli` ohne GUI: `syncthing cli config devices add …`,
+`syncthing cli config folders vault devices add …`, `syncthing cli show pending
+devices|folders`. `run_after_77-syncthing-device-id` startet Syncthing auf einem
+frischen Host einmal und zeigt die Geräte-ID im Abschlussblock. Mit
+`machines.<host>.syncthing.vaultInclude` (Ordner → erlaubte Unterordner, `[]` =
+ganz) legt chezmoi `~/Sync/vault/.stignore` als **Whitelist** an (`Sync/vault/
+dot_stignore.tmpl`): nur die genannten Teile des Vaults kommen auf den Host. Das ist
+keine Zugriffssperre (lokale Datei), nur Vorbeugung gegen Übertragung. Vollständig
+mit Ablauf, Test und Stolpersteinen: `SECOND_BRAIN/chezmoi-bootstrap/
+syncthing-neuer-host.md` im Vault.
+
 ## Maschinenspezifische Werte
 
 `.chezmoi.toml.tmpl` fragt bei `chezmoi init` interaktiv nach Git-`name`

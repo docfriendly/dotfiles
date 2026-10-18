@@ -76,6 +76,17 @@ machines:
       globalDiscovery: false
       relays: false
       nat: false
+      # Vault-Whitelist: nur diese Unterordner kommen per Syncthing auf den Host
+      # (alles andere steht im ~/Sync/vault/.stignore als "ignorieren"). Format:
+      # Ordner: [Unterordner], leere Liste = ganzer Ordner. Ohne vaultInclude
+      # wird keine .stignore angelegt (Vault komplett). Siehe README.
+      vaultInclude:
+        script: [common, praxis-eiffel]
+        ssh: [common, praxis-eiffel]
+        tmux: [praxis-eiffel]
+        syncthing: [praxis-eiffel]
+        wireguard: [praxis-eiffel]
+        tealdeer: []
     wireguard: true # NM-Profil mit autoconnect
     wireguardName: eiffel-praxmon # Interface max. 15 Zeichen; Datei /etc/wireguard/eiffel-praxmon.conf
     tmux:
