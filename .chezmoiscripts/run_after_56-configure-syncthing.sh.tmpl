@@ -12,7 +12,9 @@ set -eufo pipefail
 # 2. Feste Geraete-Adressen stehen NICHT im Repo (WireGuard-IPs, oeffentlich
 #    gespiegelt), sondern in ~/Sync/vault/syncthing/<host>/peers:
 #      <Geraete-ID> <Adresse> [<Adresse> ...]    (# = Kommentar)
-#    "dynamic" laesst Discovery fuer dieses Geraet zu.
+#    "dynamic" laesst Discovery fuer dieses Geraet zu. Das Wort "@vault" in der
+#    Zeile legt ein unbekanntes Geraet an und gibt ihm den Ordner vault frei
+#    (Gegenseite der Kopplung ohne GUI; der Vault ist die vertrauende Quelle).
 # config.xml selbst ist Zustand (Geraete, Ordner, API-Key, GUI-Hash) und wird
 # nicht versioniert; Syncthing ueberschreibt sie laufend. Deshalb REST statt
 # Datei-Editieren. Laeuft der Daemon nicht (z.B. vor dem ersten Cron-@reboot),
@@ -100,16 +102,49 @@ fi
 # --- Feste Peer-Adressen --------------------------------------------
 PEERS="$HOME/Sync/vault/syncthing/{{ .chezmoi.hostname }}/peers"
 if [ -f "$PEERS" ]; then
-  while read -r ID ADDRS; do
+  while read -r ID TOKENS; do
     case "$ID" in ""|"#"*) continue ;; esac
+    # "@vault" in der Zeile: Geraet bei Bedarf anlegen und den Ordner vault
+    # freigeben; alles andere sind Adressen.
+    ADDRS=""; SHARE=""
+    for T in ${TOKENS:-}; do
+      case "$T" in
+        @vault) SHARE=vault ;;
+        *) ADDRS="$ADDRS${ADDRS:+ }$T" ;;
+      esac
+    done
     [ -n "$ADDRS" ] || continue
     JSON="["; SEP=""
     for A in $ADDRS; do JSON="$JSON$SEP\"$A\""; SEP=","; done
     JSON="$JSON]"
     CUR="$(api "$API/config/devices/$ID" 2>/dev/null || true)"
+    if [ -z "$CUR" ] && [ -n "$SHARE" ]; then
+      echo "==> Geraet ${ID%%-*}… aus peers angelegt (@vault)."
+      api -X POST -H 'Content-Type: application/json' \
+        -d "{\"deviceID\":\"$ID\",\"name\":\"peer-${ID%%-*}\",\"addresses\":$JSON}" \
+        "$API/config/devices" >/dev/null || echo "    Anlegen von ${ID%%-*}… fehlgeschlagen" >&2
+      CUR="$(api "$API/config/devices/$ID" 2>/dev/null || true)"
+    fi
     if [ -z "$CUR" ]; then
       echo "    Geraet ${ID%%-*}… unbekannt (noch nicht gekoppelt) - uebersprungen" >&2
       continue
+    fi
+    if [ -n "$SHARE" ]; then
+      FOLDER="$(api "$API/config/folders/$SHARE" 2>/dev/null | tr -d ' \n\t' || true)"
+      case "$FOLDER" in
+        "") echo "    Ordner $SHARE fehlt - Freigabe fuer ${ID%%-*}… uebersprungen" >&2 ;;
+        *"\"deviceID\":\"$ID\""*) ;;
+        *)
+          DEVS=""
+          for D in $(printf '%s' "$FOLDER" | grep -oP '"deviceID":"\K[^"]+'); do
+            DEVS="$DEVS${DEVS:+,}{\"deviceID\":\"$D\"}"
+          done
+          echo "==> Ordner $SHARE fuer ${ID%%-*}… freigegeben."
+          api -X PATCH -H 'Content-Type: application/json' \
+            -d "{\"devices\":[$DEVS,{\"deviceID\":\"$ID\"}]}" \
+            "$API/config/folders/$SHARE" >/dev/null || echo "    Freigabe fuer ${ID%%-*}… fehlgeschlagen" >&2
+          ;;
+      esac
     fi
     # Syncthing liefert die Liste mit Zeilenumbruechen/Einrueckung; fuer den
     # Vergleich alle Leerraeume entfernen.
