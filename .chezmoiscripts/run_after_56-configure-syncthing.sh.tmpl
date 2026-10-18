@@ -69,6 +69,34 @@ else
   echo "==> Syncthing-Optionen bereits wie gewuenscht."
 fi
 
+# --- Erstkopplung ohne Klick ----------------------------------------
+# Geraete-ID und Adresse des Nachbarn gehoeren nicht ins (oeffentliche) Repo und
+# sind auf einem frischen Host auch noch nicht im Vault. Deshalb per Umgebung:
+#   SYNCTHING_PAIR="<Geraete-ID> tcp://<LAN-IP>:22000" chezmoi update
+# Das Skript legt das Geraet an (autoAcceptFolders), setzt den Standard-
+# Ordnerpfad auf ~/Sync/ und nimmt damit vom Nachbarn angebotene Ordner selbst
+# an (Pfad ~/Sync/<Label>, also ~/Sync/vault). Angeboten wird nur, was der
+# Nachbar fuer diese Geraete-ID freigegeben hat. Die .stignore (Whitelist)
+# liegt vorher schon, weil chezmoi sie vor diesem Skript schreibt.
+if [ -n "${SYNCTHING_PAIR:-}" ]; then
+  read -r PID PADDRS <<< "$SYNCTHING_PAIR"
+  if [ -z "${PID:-}" ] || [ -z "${PADDRS:-}" ]; then
+    echo "syncthing-kopplung: SYNCTHING_PAIR braucht '<ID> <Adresse>' - uebersprungen" >&2
+  else
+    JSON="["; SEP=""
+    for A in $PADDRS; do JSON="$JSON$SEP\"$A\""; SEP=","; done
+    JSON="$JSON]"
+    api -X PATCH -H 'Content-Type: application/json' -d '{"path":"~/Sync/"}' "$API/config/defaults/folder" >/dev/null
+    if api "$API/config/devices/$PID" >/dev/null 2>&1; then
+      api -X PATCH -H 'Content-Type: application/json' -d "{\"addresses\":$JSON,\"autoAcceptFolders\":true}" "$API/config/devices/$PID" >/dev/null
+      echo "==> Nachbar ${PID%%-*}… war bekannt: Adresse gesetzt, Auto-Accept an."
+    else
+      api -X POST -H 'Content-Type: application/json' -d "{\"deviceID\":\"$PID\",\"name\":\"nachbar-${PID%%-*}\",\"addresses\":$JSON,\"autoAcceptFolders\":true}" "$API/config/devices" >/dev/null
+      echo "==> Nachbar ${PID%%-*}… angelegt (Auto-Accept an, Standardpfad ~/Sync/)."
+    fi
+  fi
+fi
+
 # --- Feste Peer-Adressen --------------------------------------------
 PEERS="$HOME/Sync/vault/syncthing/{{ .chezmoi.hostname }}/peers"
 if [ -f "$PEERS" ]; then
