@@ -750,10 +750,13 @@ nächsten Apply `GET /rest/system/connections` prüfen (`tcp-*`, `10.8.0.x`).
 Ein frischer Host hat weder `.conf` noch `peers`; beides liegt im Vault, der per
 Syncthing kommt, das nur über den Tunnel laufen soll. Die erste Kopplung läuft
 deshalb über ein bereits gekoppeltes Gerät im selben LAN (Local Discovery oder
-feste LAN-Adresse), danach alles über WireGuard. Alle Schritte gehen per
-`syncthing cli` ohne GUI: `syncthing cli config devices add …`,
-`syncthing cli config folders vault devices add …`, `syncthing cli show pending
-devices|folders`. `run_after_77-syncthing-device-id` startet Syncthing auf einem
+feste LAN-Adresse), danach alles über WireGuard. Alle Schritte gehen ohne GUI über
+die REST-Schnittstelle (`curl` mit dem API-Schlüssel aus `config.xml`, wie Skript 56):
+`POST /rest/config/devices`, `POST /rest/config/folders`, `PUT
+/rest/config/folders/vault`, `GET /rest/cluster/pending/{devices,folders}`.
+`syncthing cli config devices add` stürzt in Syncthing 2.1.3 ab (Listenfelder).
+Der x230 läuft noch mit Debians Syncthing 1.19 (`~/.config/syncthing/`) und ist
+noch nicht per chezmoi verwaltet; das ist geplant. `run_after_77-syncthing-device-id` startet Syncthing auf einem
 frischen Host einmal und zeigt die Geräte-ID im Abschlussblock. Mit
 `machines.<host>.syncthing.vaultInclude` (Ordner → erlaubte Unterordner, `[]` =
 ganz) legt chezmoi `~/Sync/vault/.stignore` als **Whitelist** an (`Sync/vault/
