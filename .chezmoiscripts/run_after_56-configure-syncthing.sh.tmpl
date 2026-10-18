@@ -46,7 +46,19 @@ want() { # want <jsonKey> <true|false>
 }
 PATCH=""
 add() { want "$1" "$2" || PATCH="$PATCH${PATCH:+,}\"$1\":$2"; }
-{{ if hasKey $st "localDiscovery" }}add localAnnounceEnabled {{ index $st "localDiscovery" }}{{ end }}
+{{ if hasKey $st "localDiscovery" -}}
+LD={{ index $st "localDiscovery" }}
+{{ if index $st "localDiscoveryUntilPaired" -}}
+# localDiscoveryUntilPaired: solange noch kein einziges Geraet verbunden ist,
+# bleibt Local Discovery an (Erstkopplung im LAN, "Nachbarschaft" in der GUI);
+# sobald eine Verbindung steht, gilt wieder der Wert aus localDiscovery.
+if ! { api "$API/system/connections" || true; } | tr -d ' \n\t' | grep -q '"connected":true'; then
+  LD=true
+  echo "==> Noch kein Geraet verbunden: Local Discovery bleibt zur Erstkopplung an." >&2
+fi
+{{ end -}}
+add localAnnounceEnabled "$LD"
+{{ end -}}
 {{ if hasKey $st "globalDiscovery" }}add globalAnnounceEnabled {{ index $st "globalDiscovery" }}{{ end }}
 {{ if hasKey $st "relays" }}add relaysEnabled {{ index $st "relays" }}{{ end }}
 {{ if hasKey $st "nat" }}add natEnabled {{ index $st "nat" }}{{ end }}

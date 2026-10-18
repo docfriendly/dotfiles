@@ -73,6 +73,9 @@ machines:
     syncthing: # wie ihht: nur ueber WireGuard, nichts im Netz suchen
       autostart: true
       localDiscovery: false
+      # Ausnahme zur Erstkopplung: an, solange noch kein Geraet verbunden ist,
+      # danach gilt localDiscovery (false). Siehe Skript 56 und README.
+      localDiscoveryUntilPaired: true
       globalDiscovery: false
       relays: false
       nat: false

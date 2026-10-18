@@ -755,7 +755,11 @@ die REST-Schnittstelle (`curl` mit dem API-Schlüssel aus `config.xml`, wie Skri
 `POST /rest/config/devices`, `POST /rest/config/folders`, `PUT
 /rest/config/folders/vault`, `GET /rest/cluster/pending/{devices,folders}`.
 `syncthing cli config devices add` stürzt in Syncthing 2.1.3 ab (Listenfelder).
-Der x230 läuft noch mit Debians Syncthing 1.19 (`~/.config/syncthing/`) und ist
+Mit `syncthing.localDiscoveryUntilPaired: true` bleibt Local Discovery trotz
+`localDiscovery: false` an, **solange noch kein Gerät verbunden ist** (Skript 56
+prüft `/rest/system/connections`); dann erscheint der Nachbar in der GUI unter
+"Geräte in der Nachbarschaft". Sobald eine Verbindung steht, schaltet der nächste
+Apply sie ab. Der x230 läuft noch mit Debians Syncthing 1.19 (`~/.config/syncthing/`) und ist
 noch nicht per chezmoi verwaltet; das ist geplant. `run_after_77-syncthing-device-id` startet Syncthing auf einem
 frischen Host einmal und zeigt die Geräte-ID im Abschlussblock. Mit
 `machines.<host>.syncthing.vaultInclude` (Ordner → erlaubte Unterordner, `[]` =
