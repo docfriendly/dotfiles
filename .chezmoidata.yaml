@@ -76,6 +76,8 @@ machines:
       # Ausnahme zur Erstkopplung: an, solange noch kein Geraet verbunden ist,
       # danach gilt localDiscovery (false). Siehe Skript 56 und README.
       localDiscoveryUntilPaired: true
+      # ufw-Regeln fuer Syncthing aus den peers + Erstkopplung (Skript 57, Opt-in)
+      manageUfw: true
       globalDiscovery: false
       relays: false
       nat: false

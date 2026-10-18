@@ -681,10 +681,17 @@ in `resurrectProcesses` (tmux-resurrect würde eine zweite Instanz starten,
 die an der Datenbank-Sperre scheitert). Sofortstart ohne Reboot:
 `tmux new-session -d -s syncthing 'syncthing serve --no-browser'`.
 
-Verbindung nur über den Tunnel (nicht im Repo, Handarbeit je Host):
+Verbindung nur über den Tunnel (Adressen nicht im Repo):
 - `ufw`: Port 22000/tcp nur auf dem Tunnel-Interface und nur für die Gegenstelle,
   z. B. `sudo ufw allow in on <host>-praxmon from <WG-IP-der-Gegenstelle> to any
-  port 22000 proto tcp`.
+  port 22000 proto tcp`. Auf Hosts mit `syncthing.manageUfw: true` (heute
+  praxis-eiffel) setzt `run_after_57-configure-ufw-syncthing` das selbst: je
+  `tcp://<IP>:<Port>`-Adresse in `~/Sync/vault/syncthing/<host>/peers`, die im Netz
+  des WireGuard-Interfaces liegt (`Address` der `/etc/wireguard/<Name>.conf`), plus
+  mit `localDiscoveryUntilPaired` die Ausnahme `21027/udp` aus dem LAN, solange kein
+  Gerät verbunden ist (danach wieder entfernt). Schaltet die ufw nie ein, räumt keine
+  fremden Regeln auf, Kommentar `chezmoi-syncthing`. Auf anderen Hosts bleibt es
+  Handarbeit.
 - Gerät der Gegenstelle mit fester Adresse `tcp://<WG-IP>:22000` eintragen
   (REST `PATCH /rest/config/devices/<id>` oder GUI). Eine veraltete LAN-IP in
   der Adressliste (ihht 17.10.2026) fiel erst beim Test auf.

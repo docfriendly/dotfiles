@@ -1,0 +1,110 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname }}
+{{- $st := index $machine "syncthing" }}
+{{ if and (ne .chezmoi.os "darwin") $st (index $st "manageUfw") -}}
+{{ template "softstep.sh" . }}
+WARN_SRC="57-ufw-syncthing"
+
+# ══════════════════════════════════════════════════════════════════
+# UFW-REGELN FUER SYNCTHING (nur Hosts mit machines.<host>.syncthing.manageUfw)
+# Opt-in: die ufw ist sonst Handarbeit, und ein Skript, das fremde Regeln
+# anfasst, soll nur dort laufen, wo es gewollt ist (heute praxis-eiffel).
+# Das Skript schaltet die ufw NIE ein; ist sie nicht aktiv oder nicht da,
+# endet es mit Hinweis und Exit 0. Es legt nur an, es raeumt nur die eine
+# Ausnahme fuer die Erstkopplung (21027/udp) wieder weg. Alle Regeln tragen
+# den Kommentar "chezmoi-syncthing".
+#
+# 1. Tunnel: fuer jede Adresse tcp://<IP>:<Port> in
+#    ~/Sync/vault/syncthing/<host>/peers, deren IP im Netz des eigenen
+#    WireGuard-Interfaces liegt (Address = ... aus /etc/wireguard/<Name>.conf):
+#      allow in on <Interface> from <IP> to any port <Port> proto tcp
+#    Die Adressen stehen so nur im Vault, nicht im (oeffentlich gespiegelten)
+#    Repo. Aus der gleichen Datei wie Skript 56, keine zweite Liste.
+# 2. Erstkopplung (nur mit localDiscoveryUntilPaired, siehe Skript 56): solange
+#    kein Geraet verbunden ist, 21027/udp aus dem LAN-Subnetz auf dem Interface
+#    der Standardroute; sobald eines verbunden ist, wird die Regel entfernt.
+#    Eingehend 22000/tcp aus dem LAN bleibt zu - der neue Host waehlt den
+#    Nachbarn an, nicht umgekehrt.
+# Alte, breitere Handregeln werden nicht angefasst (Aufraeumen von Hand).
+# ══════════════════════════════════════════════════════════════════
+
+if ! command -v ufw >/dev/null 2>&1; then
+  echo "==> ufw-Regeln uebersprungen: ufw nicht installiert." >&2
+  exit 0
+fi
+UFW_STATUS="$(sudo ufw status 2>&1 || true)"
+case "$UFW_STATUS" in
+  *"Status: active"*) ;;
+  *) echo "==> ufw-Regeln uebersprungen: ufw nicht aktiv (wird nicht eingeschaltet)." >&2; exit 0 ;;
+esac
+
+rule_add() { # rule_add allow in on <if> from <ip> to any port <p> proto <t>
+  local out
+  if ! out="$(sudo ufw "$@" comment chezmoi-syncthing 2>&1)"; then
+    warn "ufw $*: $out"
+    return 0
+  fi
+  case "$out" in
+    *"Skipping"*|*"berspringe"*) ;;
+    *) echo "==> ufw: $*" ;;
+  esac
+}
+rule_del() { # rule_del allow in on <if> from <net> to any port <p> proto <t>
+  local out
+  out="$(sudo ufw delete "$@" 2>&1 || true)"
+  case "$out" in
+    *"Rule deleted"*|*"Regel gelöscht"*|*"Regel geloescht"*) echo "==> ufw: Regel entfernt: $*" ;;
+  esac
+}
+
+# --- 1. Tunnel-Regeln aus den peers ---------------------------------
+WGNAME="{{ index $machine "wireguardName" | default (printf "%s-praxmon" .chezmoi.hostname) }}"
+WGIP="$(sudo grep -m1 -oP '^Address\s*=\s*\K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(?=/24)' "/etc/wireguard/$WGNAME.conf" 2>/dev/null || true)"
+PEERS="$HOME/Sync/vault/syncthing/{{ .chezmoi.hostname }}/peers"
+if [ -z "$WGIP" ]; then
+  note "ufw/Syncthing: keine WireGuard-Adresse (/24) in /etc/wireguard/$WGNAME.conf - Tunnel-Regeln uebersprungen."
+elif [ ! -f "$PEERS" ]; then
+  note "ufw/Syncthing: $PEERS fehlt (kommt per Vault) - Tunnel-Regeln folgen beim naechsten Apply."
+else
+  PREFIX="${WGIP%.*}."
+  while read -r ID ADDRS; do
+    case "$ID" in ""|"#"*) continue ;; esac
+    for A in ${ADDRS:-}; do
+      case "$A" in tcp://*:*) ;; *) continue ;; esac
+      H="${A#tcp://}"; IP="${H%:*}"; PORT="${H##*:}"
+      case "$IP" in
+        "$PREFIX"*) rule_add allow in on "$WGNAME" from "$IP" to any port "$PORT" proto tcp ;;
+      esac
+    done
+  done < "$PEERS"
+fi
+
+{{ if index $st "localDiscoveryUntilPaired" -}}
+# --- 2. Local Discovery nur bis zur Erstkopplung ---------------------
+PAIRED=no
+CFG="$HOME/.local/state/syncthing/config.xml"
+if [ -f "$CFG" ]; then
+  KEY="$(grep -oP '(?<=<apikey>)[^<]+' "$CFG" | head -1)"
+  ADDR="$(grep -oP '(?<=<address>)127[^<]+' "$CFG" | head -1)"
+  if { curl -sf -m 15 -H "X-API-Key: $KEY" "http://${ADDR:-127.0.0.1:8384}/rest/system/connections" || true; } \
+      | tr -d ' \n\t' | grep -q '"connected":true'; then
+    PAIRED=yes
+  fi
+fi
+LANIF="$(ip -4 route show default 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+LANNET=""
+[ -n "$LANIF" ] && LANNET="$(ip -4 route show dev "$LANIF" scope link 2>/dev/null | awk '{print $1; exit}')"
+case "$LANNET" in
+  */*)
+    if [ "$PAIRED" = no ]; then
+      rule_add allow in on "$LANIF" from "$LANNET" to any port 21027 proto udp
+    else
+      rule_del allow in on "$LANIF" from "$LANNET" to any port 21027 proto udp
+    fi
+    ;;
+  *) note "ufw/Syncthing: LAN-Subnetz nicht ermittelt - 21027/udp nicht angefasst." ;;
+esac
+{{ end -}}
+{{ end -}}
