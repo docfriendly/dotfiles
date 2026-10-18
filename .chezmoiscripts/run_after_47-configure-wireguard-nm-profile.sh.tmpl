@@ -52,6 +52,9 @@ fi
 VAULT_CONF="$HOME/Sync/vault/wireguard/{{ .chezmoi.hostname }}/$NAME.conf"
 if ! sudo test -f "$CONF" && [ -f "$VAULT_CONF" ]; then
   echo "==> Lege $CONF aus dem Vault an (root:root, 600)..."
+  # wireguard-tools kommt aus Homebrew und legt /etc/wireguard nicht an
+  # (praxis-eiffel 18.10.2026: "install: ... Datei oder Verzeichnis nicht gefunden").
+  sudo install -d -m 700 -o root -g root /etc/wireguard
   sudo install -m 600 -o root -g root "$VAULT_CONF" "$CONF"
 fi
 
