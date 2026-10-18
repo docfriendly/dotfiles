@@ -109,7 +109,11 @@ sudo apt-get install -y "$DEB_PATH"
 
 # Binaries des Drittanbieter-Pakets durch die offiziellen ersetzen (siehe oben).
 echo "==> NoMachine-Updater: ersetze Dateien durch das offizielle 9.x (dauert einige Minuten)..."
-if sudo /usr/NX/bin/nxupdatecli --upgrade; then
+# stdin von /dev/null: der Updater wartet an zwei Stellen auf "Press any key"
+# (liest per getc(stdin), Ergebnis ungenutzt); bei EOF laeuft er ohne Tastendruck
+# weiter (eiffel 18.10.2026: Apply blieb sonst unbeaufsichtigt haengen). sudo
+# fragt sein Passwort weiterhin ueber das Terminal, nicht ueber stdin.
+if sudo /usr/NX/bin/nxupdatecli --upgrade </dev/null; then
   NX_AFTER="$(cat /usr/NX/etc/version 2>/dev/null || true)"
   echo "==> NoMachine jetzt auf $NX_AFTER."
   case "$NX_AFTER" in
