@@ -1,5 +1,5 @@
 # CLI-Werkzeuge, installiert per `brew bundle --file="$HOME/.Brewfile"`
-# (siehe .chezmoiscripts/run_once_after_70-install-brew-bundle.sh.tmpl)
+# (siehe .chezmoiscripts/run_onchange_after_70-install-brew-bundle.sh.tmpl)
 
 brew "starship"
 brew "zoxide"
@@ -18,6 +18,11 @@ brew "ripgrep"
 brew "syncthing"
 brew "tealdeer"
 brew "tmux"
+# tree-sitter-cli: LazyVim/nvim-treesitter (main) braucht das CLI im PATH. Ohne
+# Brew installiert LazyVim es per Mason; build-Hook und config starten den
+# Install in derselben Headless-Sitzung doppelt ("Package is already
+# installing") und nvim beendet sich vor dem Ende (praxis-eiffel 18.10.2026).
+brew "tree-sitter-cli"
 brew "w3m"
 brew "wireguard-go"
 brew "wireguard-tools"

@@ -1,6 +1,10 @@
 #!/bin/bash
 set -eufo pipefail
 
+# Brewfile-Hash: {{ include "dot_Brewfile.tmpl" | sha256sum }}
+# run_onchange statt run_once: aendert sich das Brewfile, aendert sich dieser
+# Hash und das Bundle laeuft auf jedem Host erneut (brew bundle ist idempotent).
+
 # ══════════════════════════════════════════════════════════════════
 # BREW-PFAD ERMITTELN
 # (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
@@ -15,14 +19,19 @@ BREW_PREFIX="/home/linuxbrew/.linuxbrew"
 eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
 
 # ══════════════════════════════════════════════════════════════════
-# LAZYVIM-PLUGINS HEADLESS INSTALLIEREN
-# (liest lazy-lock.json, das per chezmoi verwaltet wird - läuft daher
-#  bewusst als run_once_after. lazy.nvim selbst klont sich beim ersten
-#  require("config.lazy") aus init.lua automatisch, auch headless.
-#  "Lazy! restore" installiert fehlende Plugins in genau den im Lockfile
-#  gepinnten Commits, statt der jeweils neuesten Version - erspart den
-#  sichtbaren Install-Lauf beim allerersten interaktiven `nvim`-Start.)
+# PAKETE AUS ~/.Brewfile INSTALLIEREN
+# (läuft als run_once_after, da ~/.Brewfile erst beim Dotfile-Apply
+#  geschrieben wird)
 # ══════════════════════════════════════════════════════════════════
 
-echo "==> Installiere LazyVim-Plugins headless..."
-nvim --headless "+Lazy! restore" +qa
+brew bundle --file="$HOME/.Brewfile"
+
+# ══════════════════════════════════════════════════════════════════
+# FZF SHELL-INTEGRATION
+# (--all beantwortet die sonst interaktiven Ja/Nein-Abfragen automatisch,
+#  --no-update-rc verhindert Änderungen an .bashrc durch das fzf-Skript)
+# ══════════════════════════════════════════════════════════════════
+
+if [ -x "$BREW_PREFIX/opt/fzf/install" ]; then
+  "$BREW_PREFIX/opt/fzf/install" --all --no-update-rc
+fi

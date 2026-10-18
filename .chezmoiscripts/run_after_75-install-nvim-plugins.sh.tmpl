@@ -1,0 +1,54 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{ template "softstep.sh" . }}
+WARN_SRC="75-nvim-plugins"
+
+# ══════════════════════════════════════════════════════════════════
+# BREW-PFAD ERMITTELN
+# (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
+# ══════════════════════════════════════════════════════════════════
+
+{{ if eq .chezmoi.os "darwin" -}}
+BREW_PREFIX="/opt/homebrew"
+{{- else -}}
+BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+{{- end }}
+
+eval "$("$BREW_PREFIX/bin/brew" shellenv bash)"
+
+# ══════════════════════════════════════════════════════════════════
+# LAZYVIM-PLUGINS HEADLESS INSTALLIEREN
+# (liest lazy-lock.json, das per chezmoi verwaltet wird. lazy.nvim selbst
+#  klont sich beim ersten require("config.lazy") aus init.lua automatisch,
+#  auch headless. "Lazy! restore" installiert fehlende Plugins in genau den
+#  im Lockfile gepinnten Commits, statt der jeweils neuesten Version - erspart
+#  den sichtbaren Install-Lauf beim allerersten interaktiven `nvim`-Start.)
+#
+# Weicher Schritt (siehe .chezmoitemplates/softstep.sh): ein Fehler bricht den
+# Apply nicht ab, sondern landet im Warnlog; der Stempel haengt am Hash von
+# lazy-lock.json, ohne Erfolg versucht der naechste Apply es erneut. Frueher
+# run_once: nach dem Mason/tree-sitter-cli-Fehler auf praxis-eiffel
+# (18.10.2026) wurde das nie wiederholt.
+# tree-sitter-cli kommt aus dem Brewfile; ohne CLI im PATH installiert LazyVim
+# es per Mason, und build-Hook plus config starten den Install doppelt
+# ("Package is already installing"), nvim beendet sich vor dem Ende.
+# ══════════════════════════════════════════════════════════════════
+
+KEY="{{ include "dot_config/nvim/lazy-lock.json" | sha256sum }}"
+if stamp_ok nvim-plugins "$KEY"; then
+  echo "==> LazyVim-Plugins bereits installiert (Stempel), ueberspringe."
+  exit 0
+fi
+
+if ! command -v tree-sitter >/dev/null 2>&1; then
+  warn "tree-sitter (CLI) fehlt im PATH - brew bundle (Skript 70) schon gelaufen? LazyVim wuerde sonst Mason nutzen (Race)."
+fi
+
+echo "==> Installiere LazyVim-Plugins headless..."
+if nvim --headless "+Lazy! restore" +qa; then
+  stamp_set nvim-plugins "$KEY"
+else
+  warn "nvim --headless '+Lazy! restore' endete mit Fehler - naechster Apply versucht es erneut (Log: :Lazy log, :MasonLog)."
+fi
+exit 0

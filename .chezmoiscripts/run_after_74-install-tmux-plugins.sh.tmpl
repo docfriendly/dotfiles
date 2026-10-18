@@ -1,6 +1,17 @@
 #!/bin/bash
 set -eufo pipefail
 
+{{ template "softstep.sh" . }}
+WARN_SRC="74-tmux-plugins"
+# Weicher Schritt (siehe .chezmoitemplates/softstep.sh): Fehler landen im
+# Warnlog statt den Apply abzubrechen; der Stempel haengt am Hash der
+# tmux.conf (neue @plugin-Zeilen loesen einen neuen Lauf aus).
+KEY="{{ include "dot_config/tmux/tmux.conf.tmpl" | sha256sum }}"
+if stamp_ok tmux-plugins "$KEY"; then
+  echo "==> tmux-Plugins bereits installiert (Stempel), ueberspringe."
+  exit 0
+fi
+
 # ══════════════════════════════════════════════════════════════════
 # BREW-PFAD ERMITTELN
 # (macOS: /opt/homebrew, Linux: /home/linuxbrew/.linuxbrew)
@@ -22,7 +33,10 @@ TPM_DIR="$HOME/.config/tmux/plugins/tpm"
 
 if [ ! -d "$TPM_DIR" ]; then
   echo "==> Klone TPM nach $TPM_DIR..."
-  git clone --depth 1 https://github.com/tmux-plugins/tpm "$TPM_DIR"
+  if ! git clone --depth 1 https://github.com/tmux-plugins/tpm "$TPM_DIR"; then
+    warn "TPM-Klon fehlgeschlagen - naechster Apply versucht es erneut."
+    exit 0
+  fi
 else
   echo "==> TPM bereits vorhanden, überspringe."
 fi
@@ -50,10 +64,15 @@ TMUX_PRIVATE_DIR="$(mktemp -d)"
 # 09.10.2026, alle Sessions weg).
 trap 'env -u TMUX TMUX_TMPDIR="$TMUX_PRIVATE_DIR" tmux kill-server 2>/dev/null || true; rm -rf "$TMUX_PRIVATE_DIR"' EXIT
 
-(
+if (
   unset TMUX
   export TMUX_TMPDIR="$TMUX_PRIVATE_DIR"
   tmux -f /dev/null new-session -d -s tpm-bootstrap
   tmux set-environment -g TMUX_PLUGIN_MANAGER_PATH "$HOME/.config/tmux/plugins/"
   "$TPM_DIR/bin/install_plugins"
-)
+); then
+  stamp_set tmux-plugins "$KEY"
+else
+  warn "TPM install_plugins endete mit Fehler - naechster Apply versucht es erneut."
+fi
+exit 0

@@ -6,7 +6,7 @@ machines:
       hibernate: true
       log: "Sync/vault/SECOND_BRAIN/x220-forensics-unplanned-restart/x220_heartbeat.log" # relativ zu $HOME
     sysvinit: true # bootet mit sysvinit statt systemd, siehe run_onchange_after_51-install-wlan-monitor-init.sh.tmpl
-    # Syncthing: autostart = @reboot-Cron (run_onchange_after_54); die uebrigen
+    # Syncthing: autostart = @reboot-Cron (run_onchange_after_76); die uebrigen
     # Werte setzt run_after_56 per REST. Feste Peer-Adressen (IPs!) stehen nicht
     # hier, sondern in ~/Sync/vault/syncthing/<host>/peers.
     syncthing:

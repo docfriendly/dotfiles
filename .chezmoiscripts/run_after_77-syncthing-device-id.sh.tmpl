@@ -1,0 +1,67 @@
+#!/bin/bash
+set -eufo pipefail
+
+{{- $machine := index .machines .chezmoi.hostname }}
+{{- $st := index $machine "syncthing" }}
+{{ if and (ne .chezmoi.os "darwin") $st -}}
+{{ template "softstep.sh" . }}
+WARN_SRC="77-syncthing-geraete-id"
+
+# ══════════════════════════════════════════════════════════════════
+# SYNCTHING: ERSTSTART UND GERAETE-ID FUER DIE KOPPLUNG
+# Nur Hosts mit machines.<host>.syncthing. Auf einem frischen Host gibt es
+# vor dem ersten Start keine config.xml und damit keine Geraete-ID; ohne die
+# laesst sich der Host nirgends eintragen (peers-Datei, Kopplung). Dieses
+# Skript startet Syncthing einmal, liest die ID und gibt sie in
+# run_after_99-summary prominent aus, solange der Host noch niemanden kennt.
+# "Gekoppelt" = config.xml enthaelt ausser dem eigenen Geraet weitere <device>.
+# Danach schweigt das Skript. Der Daemon bleibt laufen (setsid); der
+# @reboot-Cron (run_onchange_after_76) startet ihn beim naechsten Boot, ein
+# Doppelstart scheitert harmlos an der Datenbank-Sperre.
+# ══════════════════════════════════════════════════════════════════
+
+BIN="/home/linuxbrew/.linuxbrew/bin/syncthing"
+STATE="$HOME/.local/state/syncthing"
+CFG="$STATE/config.xml"
+
+if [ ! -x "$BIN" ]; then
+  warn "$BIN fehlt (brew bundle, Skript 70, noch nicht gelaufen?) - Geraete-ID nicht ermittelt."
+  exit 0
+fi
+
+if [ ! -f "$CFG" ]; then
+  echo "==> Erststart von Syncthing, um Konfiguration und Geraete-ID zu erzeugen..."
+  mkdir -p "$STATE"
+  setsid nohup "$BIN" serve --no-browser \
+    --log-file="$STATE/syncthing.log" --log-max-old-files=3 --log-max-size=1048576 \
+    >/dev/null 2>&1 < /dev/null &
+  for _ in $(seq 1 40); do
+    [ -f "$CFG" ] && grep -q '<device id=' "$CFG" 2>/dev/null && break
+    sleep 1
+  done
+fi
+
+if [ ! -f "$CFG" ] || ! grep -q '<device id=' "$CFG"; then
+  warn "Syncthing hat keine config.xml erzeugt (siehe $STATE/syncthing.log)."
+  exit 0
+fi
+
+MYID="$(grep -oP '<device id="\K[^"]+' "$CFG" | head -1)"
+NDEV="$(grep -c '<device id=' "$CFG" || true)"
+
+if [ "$NDEV" -gt 1 ]; then
+  # schon gekoppelt: alte ID-Notiz ist erledigt
+  rm -f "$HOME/syncthing-device-id.txt"
+  exit 0
+fi
+
+printf '%s\n' "$MYID" > "$HOME/syncthing-device-id.txt"
+note "══ NEUER SYNCTHING-HOST: {{ .chezmoi.hostname }} noch mit niemandem gekoppelt ══
+Geraete-ID:
+  $MYID
+(auch in ~/syncthing-device-id.txt)
+Auf dem x220 eintragen: ~/Sync/vault/syncthing/x220/peers, Zeile
+  $MYID tcp://<WG-Adresse dieses Hosts>:22000
+und das Geraet im x220-Syncthing hinzufuegen (Adresse tcp://<WG-Adresse>:22000).
+Dann hier den Vault freigeben und einen zweiten chezmoi apply laufen lassen."
+{{ end -}}

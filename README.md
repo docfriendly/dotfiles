@@ -105,7 +105,7 @@ Das löst automatisch die komplette Kette aus:
    Skript bricht bei Resten mit Bereinigungsbefehl ab. Auf macOS gilt weiter
    der `cask "nomachine"` im Brewfile (liefert 10, braucht dort Lizenz bzw.
    Player-Nutzung)
-6. `run_once_after_70-install-brew-bundle.sh.tmpl` – installiert alle
+6. `run_onchange_after_70-install-brew-bundle.sh.tmpl` – installiert alle
    Pakete aus `~/.Brewfile` (starship, zoxide, asdf, ripgrep, fzf, ...)
    und richtet die fzf-Shell-Integration nicht-interaktiv ein
 7. `run_once_after_72-install-asdf-tools.sh.tmpl` – registriert die
@@ -657,7 +657,7 @@ alten Weg; für den Rollback passen sie, für den neuen Weg sind sie überflüss
 
 ## Syncthing: Autostart und Verbindung über WireGuard
 
-`run_onchange_after_54-install-syncthing-autostart` trägt auf Hosts mit
+`run_onchange_after_76-install-syncthing-autostart` trägt auf Hosts mit
 `machines.<host>.syncthing.autostart: true` eine `@reboot`-Zeile (Markierung `#
 syncthing-managed`) in die User-Crontab ein: `syncthing serve --no-browser`
 mit Logdatei unter `~/.local/state/syncthing/`. Cron, weil die Hosts

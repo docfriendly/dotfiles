@@ -3,7 +3,7 @@ set -eufo pipefail
 
 {{- $machine := index .machines .chezmoi.hostname -}}
 {{- if not $machine -}}
-{{   fail (printf "run_onchange_after_54-install-syncthing-autostart: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
+{{   fail (printf "run_onchange_after_76-install-syncthing-autostart: unbekannter Hostname %q - bitte Eintrag in .chezmoidata.yaml unter machines.%s ergaenzen" .chezmoi.hostname .chezmoi.hostname) }}
 {{- end }}
 {{- $st := index $machine "syncthing" }}
 
@@ -26,6 +26,9 @@ set -eufo pipefail
 # 22000 nur ueber den WireGuard-Tunnel, siehe README). Der Tunnel muss beim
 # Boot stehen (run_after_47, NM-Profil mit autoconnect).
 # run_onchange: laeuft erneut, sobald sich die gerenderte Zeile aendert.
+# Nummer 76 (nach dem Brew-Bundle 70): als 54 lief das Skript auf einem frischen
+# Host vor der Installation von syncthing, meldete "fehlt" mit Exit 0, und
+# run_onchange wiederholte es danach nie (praxis-eiffel 18.10.2026).
 # Sofort starten ohne Reboot: tmux new-session -d -s syncthing
 # 'syncthing serve --no-browser' (oder die Zeile aus `crontab -l` ausfuehren).
 # ════════════════════════════════════════════════════════════════════════
